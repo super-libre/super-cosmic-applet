@@ -1,0 +1,78 @@
+[package]
+  name        = "super-cosmic-applet"
+  version     = "0.1.0"
+  authors     = ["Jorge Menjivar <jorge@menjivar.ai>"]
+  edition     = "2024"
+  description = "COSMIC panel applet for Super STT and Super TTS"
+  repository  = "https://github.com/super-libre/super-cosmic-applet"
+  license     = "GPL-3.0-only"
+
+[[bin]]
+  name = "super-cosmic-applet"
+  path = "src/main.rs"
+
+[dependencies]
+  base64 = "0.22.1"
+  clap   = { version = "4.5", features = ["derive"] }
+  futures-util = "0.3.31"
+  libc = "0.2"
+  # No `wgpu`: the applet renders with iced's tiny-skia backend, which draws
+  # everything here, the visualization and working-animation canvases
+  # included, on the CPU. A GPU renderer in a panel applet costs ~85 MB of RSS
+  # per instance (108 MB against 23 MB, measured idle) because it loads the
+  # Mesa and NVIDIA driver stacks at startup, and the applet runs one process
+  # per side per panel. Upstream COSMIC draws the same line: its apps link
+  # wgpu, its applets do not.
+  #
+  # Pinned by rev, at the same one as Super STT and Super TTS: libcosmic has
+  # no releases, and a revision far from the installed COSMIC reads a theme
+  # directory the desktop no longer writes.
+  libcosmic = {
+    git              = "https://github.com/pop-os/libcosmic.git",
+    rev              = "ef162b8e16ba4493e05c169cd56c7b9f77f0fda5",
+    default-features = false,
+    features         = ["default", "applet", "tokio"],
+  }
+  log        = "0.4.29"
+  serde      = { version = "1.0.219", features = ["derive"] }
+  serde_json = "1.0.149"
+  # The applet talks to both daemons through super-engine's client, and takes
+  # each product's names (its socket, keyring service, scopes and topics) from
+  # the product's own registry types crate.
+  #
+  # All three must name the SAME super-engine rev: the product crates depend on
+  # super-engine-protocol at the rev their workspace pins, and a ProductSpec
+  # from one rev is a different type from a ProductSpec of another. Bump the
+  # engine here only together with both products' pins, and the product revs
+  # below to commits that pin the same engine.
+  super-engine-client = {
+    git = "https://github.com/super-libre/super-engine",
+    rev = "7010eed104753005ef402c7fa5af24b2b9c47a8f",
+  }
+  super-engine-protocol = {
+    git = "https://github.com/super-libre/super-engine",
+    rev = "7010eed104753005ef402c7fa5af24b2b9c47a8f",
+  }
+  super-stt-registry-types = {
+    git = "https://github.com/jorge-menjivar/super-stt",
+    rev = "42ab3ee96c5a93a311daaff326cb2879daa3f925",
+  }
+  super-tts-registry-types = {
+    git = "https://github.com/super-libre/super-tts",
+    rev = "1e3dc374915d403ba143325ccbab68631e40499d",
+  }
+  tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
+  toml  = "1.0.6"
+
+[lints.clippy]
+  pedantic = { level = "warn", priority = -1 }
+
+# Mirrors the clippy gate (see `just check`) so `cargo clippy` / `cargo build`
+# apply the same standard as CI.
+[lints.rust]
+  unused_must_use = "deny"
+
+[profile.release]
+  lto           = true
+  panic         = "abort"
+  codegen-units = 1

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Super Applet (Full)
+Comment=Super STT and Super TTS panel applet. Full visualization display.
+Type=Application
+Exec=super-cosmic-applet --side full
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Iced;Speech;STT;TTS;Super;
+Icon=super-cosmic-applet
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=50
