@@ -40,6 +40,10 @@ check-binary-renderer bin:
 # Everything CI runs
 ci: fmt-check check test check-renderer
 
+# Remove build artifacts
+clean:
+    cargo clean
+
 # Fail unless `tag` is v<the version in Cargo.toml>, e.g. v0.1.0 or
 # v0.2.0-beta.1
 check-tag tag:
