@@ -44,6 +44,21 @@ The applet takes each product's names from that product's own crate, and
 super-engine's client for the rest. `Cargo.toml` explains why all three must
 name the same super-engine revision.
 
+## Release
+
+A release publishes the tarballs Super STT's and Super TTS's installers
+install the applet from. To cut one:
+
+1. Set `version` in `Cargo.toml`, run `just check` so `Cargo.lock` picks it
+   up, and commit both files.
+2. Tag the commit `v<version>`, like `v0.2.0` or `v0.2.0-beta.1`, and push
+   the tag.
+3. The release workflow checks the tag against `Cargo.toml`. It builds the
+   x86_64 and aarch64 tarballs, then publishes them with a `SHA256SUMS`. A tag
+   with a `-` publishes a prerelease.
+
+`just package <target> [tag]` builds the same tarball locally, into `dist/`.
+
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).

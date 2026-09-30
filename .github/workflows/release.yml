@@ -1,0 +1,117 @@
+name: Release
+
+# Publishes a release of the applet for each version tag, which Super STT's
+# and Super TTS's installers then install:
+#
+# 1. v0.1.0 publishes a release, with super-cosmic-applet-<triple>.tar.gz.
+# 2. A tag with a prerelease part, like v0.2.0-beta.1, publishes a
+#    prerelease, with super-cosmic-applet-<triple>-beta.tar.gz. Only an
+#    install on the beta channel takes it.
+#
+# Each release carries a SHA256SUMS the installers check the tarballs
+# against. The tag must match the version in Cargo.toml.
+#
+# Running it by hand builds the tarballs without publishing anything.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      matrix:
+        include:
+          # Native builds, on 22.04 (glibc 2.35) like the products', so the
+          # applet runs on the same distros they do.
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxkbcommon-x11-dev \
+            libegl1-mesa-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-release-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Check the tag against Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: just check-tag "$GITHUB_REF_NAME"
+
+      - name: Build the tarball
+        run: |
+          tag=''
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag="$GITHUB_REF_NAME"; fi
+          just package ${{ matrix.target }} "$tag"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: super-cosmic-applet-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Generate SHA256SUMS
+        run: |
+          shopt -s globstar nullglob
+          : > SHA256SUMS
+          for f in artifacts/**/*.tar.gz; do
+            (cd "$(dirname "$f")" && sha256sum "$(basename "$f")") >> SHA256SUMS
+          done
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            SHA256SUMS
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
