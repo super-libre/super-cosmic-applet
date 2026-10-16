@@ -1,5 +1,7 @@
 # Super Applet
 
+[![coverage](https://img.shields.io/endpoint?url=https://super-libre.github.io/super-cosmic-applet/coverage.json)](https://super-libre.github.io/super-cosmic-applet/)
+
 <img src="resources/icons/hicolor/scalable/apps/super-cosmic-applet.svg" width="96" height="96" alt="Super Applet">
 
 A COSMIC panel applet for [Super STT](https://github.com/jorge-menjivar/super-stt)

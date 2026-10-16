@@ -9,19 +9,79 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request makes its older run moot, so that one is
+# cancelled. Runs on main are not: cancelling one could stop a Pages deploy
+# halfway.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
+  test:
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just
+
+      # libcosmic needs the Wayland, xkbcommon, EGL and dbus libraries to
+      # build, in every job that compiles the applet.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxkbcommon-x11-dev \
+            libegl1-mesa-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('Cargo.lock') }}
+
+      - name: Run tests
+        run: just test
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: just fmt-check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just
 
       - name: Install system dependencies
         run: |
@@ -36,19 +96,184 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
 
-      - uses: taiki-e/install-action@v2.87.15
-        with:
-          tool: just
-
-      - name: Cache cargo
+      - name: Cache dependencies
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('Cargo.lock') }}
 
-      - run: just ci
+      # Gates the build: `just check` runs clippy with `-D warnings`, so any
+      # lint fails CI.
+      - name: Run clippy
+        run: just check
+
+  renderer:
+    name: Renderer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxkbcommon-x11-dev \
+            libegl1-mesa-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Its own cache: this is the release profile's build, with LTO, which
+      # shares nothing in target/ with the other jobs' debug builds.
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+
+      # Only the release binary can show whether wgpu got linked in, so this
+      # builds it and looks. See `just check-renderer`.
+      - name: Check the binary renders without wgpu
+        run: just check-renderer
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just,cargo-llvm-cov
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxkbcommon-x11-dev \
+            libegl1-mesa-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-llvmcov-${{ hashFiles('Cargo.lock') }}
+
+      - name: Coverage (lcov + summary)
+        run: just coverage-lcov
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-lcov
+          path: lcov.info
+
+  # Publish the browsable HTML coverage report to GitHub Pages (main only).
+  # One-time setup: repo Settings → Pages → Source = "GitHub Actions".
+  # Served at https://super-libre.github.io/super-cosmic-applet/.
+  coverage-pages:
+    name: Coverage (Pages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Serialize deploys; never cancel an in-flight Pages deployment.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: just,cargo-llvm-cov
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxkbcommon-x11-dev \
+            libegl1-mesa-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-llvmcov-${{ hashFiles('Cargo.lock') }}
+
+      # Same scope as the lcov job: renders the static HTML report to
+      # target/llvm-cov/html/.
+      - name: Generate HTML coverage report
+        run: just coverage --html
+
+      # Drop a shields.io "endpoint" JSON beside the HTML so the README badge
+      # reads the latest line-% straight from Pages — no Gist or PAT. `report`
+      # reuses the profiles just collected (no rebuild). jq ships on the runner.
+      - name: Write coverage badge JSON
+        run: |
+          set -euo pipefail
+          pct=$(cargo llvm-cov report --json --summary-only \
+            | jq -r '.data[0].totals.lines.percent')
+          if   awk "BEGIN{exit !($pct>=90)}"; then color=brightgreen
+          elif awk "BEGIN{exit !($pct>=75)}"; then color=green
+          elif awk "BEGIN{exit !($pct>=60)}"; then color=yellow
+          elif awk "BEGIN{exit !($pct>=40)}"; then color=orange
+          else color=red
+          fi
+          printf '{"schemaVersion":1,"label":"coverage","message":"%.1f%%","color":"%s"}\n' \
+            "$pct" "$color" > target/llvm-cov/html/coverage.json
+          cat target/llvm-cov/html/coverage.json
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/llvm-cov/html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

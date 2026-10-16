@@ -18,6 +18,18 @@ fmt:
 test *args:
     cargo test {{ args }}
 
+# The tests live in the modules they test, so the report counts them along
+# with the code; there is no tests/ directory to leave out.
+#
+# Measure coverage, requires cargo-llvm-cov. Usage: just coverage [--html]
+coverage *args:
+    cargo llvm-cov --locked --remap-path-prefix {{ args }}
+
+# Coverage for CI: write lcov.info and print a summary.
+coverage-lcov:
+    cargo llvm-cov --locked --remap-path-prefix --lcov --output-path lcov.info
+    cargo llvm-cov report --summary-only
+
 build-release *args:
     cargo build --release {{ args }}
 
@@ -43,6 +55,11 @@ ci: fmt-check check test check-renderer
 # Remove build artifacts
 clean:
     cargo clean
+
+# Remove build artifacts, and what coverage leaves outside target/: the lcov
+# report `coverage-lcov` writes and the profile data a run can drop here.
+clean-all: clean
+    rm -f lcov.info *.profraw *.profdata
 
 # Fail unless `tag` is v<the version in Cargo.toml>, e.g. v0.1.0 or
 # v0.2.0-beta.1
