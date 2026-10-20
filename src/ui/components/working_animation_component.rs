@@ -103,7 +103,9 @@ impl Program<Message, Theme, Renderer> for WorkingAnimationComponent {
             cosmic::iced::Color::TRANSPARENT,
         );
         let ctx = WorkingDrawContext {
-            bounds,
+            // In the canvas's own frame, as for the visualization: iced moves
+            // the drawing to where the canvas sits in the window.
+            bounds: Rectangle::with_size(bounds.size()),
             elapsed_ms: self.elapsed_ms,
             color_config: &self.colors,
             is_dark: theme.cosmic().is_dark,
@@ -194,6 +196,23 @@ mod drawing_tests {
         render_program(WIDTH, HEIGHT, |renderer| {
             component.draw(&(), renderer, &theme, bounds, mouse::Cursor::Unavailable)
         })
+    }
+
+    /// As for the visualization: the canvas sits inside the applet's padding,
+    /// and iced already moves what it draws there.
+    #[test]
+    fn it_draws_the_same_wherever_its_canvas_sits() {
+        for animation in [WorkingAnimationTheme::Droplet, WorkingAnimationTheme::Comet] {
+            let component = component(animation, colors(VisualizationColor::White));
+            let at_origin = draw_at(&component, 0.0, 0.0, true);
+            let padded = draw_at(&component, 12.0, 6.0, true);
+            assert!(at_origin.painted() > 0);
+            assert_eq!(
+                at_origin.difference(&padded),
+                0,
+                "{animation:?} moved with its canvas"
+            );
+        }
     }
 
     #[test]

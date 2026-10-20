@@ -185,7 +185,11 @@ impl Program<Message, Theme, Renderer> for VisualizationComponent {
         );
 
         let ctx = DrawContext {
-            bounds,
+            // The frame is the canvas's own: iced moves what it draws to where
+            // the canvas sits. `bounds` says where that is in the window, so
+            // drawing from its origin would move it twice, by the applet's
+            // padding, and cut that much off the far edges.
+            bounds: Rectangle::with_size(bounds.size()),
             frequency_data: &self.frequency_data,
             side: &self.visualization_side,
             color_config: &self.visualization_colors,
@@ -617,6 +621,29 @@ mod drawing_tests {
         render_program(WIDTH, HEIGHT, |renderer| {
             component.draw(&(), renderer, &theme, bounds, mouse::Cursor::Unavailable)
         })
+    }
+
+    /// The applet pads its canvas inside the panel, so the canvas never sits
+    /// at the window's origin. iced hands `draw` the canvas's bounds in the
+    /// window, and moves what it draws to where the canvas is, so drawing at
+    /// those bounds' origin would move it twice: off by the padding, with its
+    /// far edges cut.
+    #[test]
+    fn it_draws_the_same_wherever_its_canvas_sits() {
+        for style in [
+            VisualizationTheme::BottomEqualizer,
+            VisualizationTheme::Waveform,
+        ] {
+            let component = component(style.clone(), colors(VisualizationColor::White));
+            let at_origin = draw_at(&component, 0.0, 0.0, true);
+            let padded = draw_at(&component, 12.0, 6.0, true);
+            assert!(at_origin.painted() > 0);
+            assert_eq!(
+                at_origin.difference(&padded),
+                0,
+                "{style:?} moved with its canvas"
+            );
+        }
     }
 
     #[test]
