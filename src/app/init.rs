@@ -73,18 +73,21 @@ impl SuperApplet {
         let variant_name = AppletConfig::get_variant_name(&visualization_side);
         let config = AppletConfig::load(variant_name, visualization_side.clone());
 
+        // Nothing is in front yet: the first product to become active swaps
+        // its own look in (`sync_shown`).
+        let look = config.visualization.product(Product::Stt);
         let visualization = VisualizationComponent::new(
             0.0,
             false,
-            config.visualization.theme.clone(),
+            look.theme.clone(),
             visualization_side.clone(),
-            config.visualization.colors.clone(),
+            look.colors.clone(),
         );
 
         let working_animation = WorkingAnimationComponent::new(
-            config.visualization.working_animation,
+            look.working_animation,
             visualization_side,
-            config.visualization.colors.clone(),
+            look.colors.clone(),
         );
 
         let (icon_alignment_model, icon_alignment_start, icon_alignment_center, icon_alignment_end) =
@@ -114,6 +117,7 @@ impl SuperApplet {
             theme_selector_light,
             theme_selector_dark,
             selected_theme_for_config: is_dark,
+            picked_settings_tab: Product::Stt,
         };
 
         for link in &applet.links {

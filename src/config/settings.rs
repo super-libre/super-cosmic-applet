@@ -15,25 +15,85 @@ pub struct AppletConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "VisualizationConfigOnDisk")]
 pub struct VisualizationConfig {
+    // This will be fixed per binary but stored for completeness.
+    pub side: VisualizationSide,
+    /// How the panel draws Super STT's recording and transcribing.
+    pub stt: ProductVisualization,
+    /// How the panel draws Super TTS's speech and synthesizing.
+    pub tts: ProductVisualization,
+}
+
+impl VisualizationConfig {
+    pub fn product(&self, product: Product) -> &ProductVisualization {
+        match product {
+            Product::Stt => &self.stt,
+            Product::Tts => &self.tts,
+        }
+    }
+
+    pub fn product_mut(&mut self, product: Product) -> &mut ProductVisualization {
+        match product {
+            Product::Stt => &mut self.stt,
+            Product::Tts => &mut self.tts,
+        }
+    }
+}
+
+/// How the panel draws one product's activity, so the two can be told apart
+/// when both are active and the panel switches between them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProductVisualization {
     #[serde(
         default,
         deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
     )]
     pub theme: VisualizationTheme,
-    // This will be fixed per binary but stored for completeness.
-    #[serde(
-        default,
-        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
-    )]
-    pub side: VisualizationSide,
-    pub colors: VisualizationColorConfig,
-    /// Animation shown while the daemon transcribes (`Processing` state).
+    /// Animation shown while the product works: transcribing for Super STT,
+    /// synthesizing the first audio for Super TTS.
     #[serde(
         default,
         deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
     )]
     pub working_animation: WorkingAnimationTheme,
+    #[serde(default)]
+    pub colors: VisualizationColorConfig,
+}
+
+/// [`VisualizationConfig`] as a file holds it. A config from before each
+/// product had its own table keeps one set of settings at the top of
+/// `[visualization]`; that set seeds every product without a table, so an
+/// upgrade draws both products the way the user had set the panel up.
+#[derive(Deserialize)]
+struct VisualizationConfigOnDisk {
+    #[serde(
+        default,
+        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
+    )]
+    side: VisualizationSide,
+    #[serde(
+        default,
+        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
+    )]
+    stt: Option<ProductVisualization>,
+    #[serde(
+        default,
+        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
+    )]
+    tts: Option<ProductVisualization>,
+    #[serde(flatten)]
+    shared: ProductVisualization,
+}
+
+impl From<VisualizationConfigOnDisk> for VisualizationConfig {
+    fn from(disk: VisualizationConfigOnDisk) -> Self {
+        Self {
+            side: disk.side,
+            stt: disk.stt.unwrap_or_else(|| disk.shared.clone()),
+            tts: disk.tts.unwrap_or(disk.shared),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,10 +114,9 @@ impl Default for AppletConfig {
     fn default() -> Self {
         Self {
             visualization: VisualizationConfig {
-                theme: VisualizationTheme::CenteredEqualizer,
                 side: VisualizationSide::Full,
-                colors: VisualizationColorConfig::default(),
-                working_animation: WorkingAnimationTheme::default(),
+                stt: ProductVisualization::default(),
+                tts: ProductVisualization::default(),
             },
             ui: UiConfig {
                 show_icon: true,
@@ -180,20 +239,20 @@ mod working_animation_config_tests {
 
     #[test]
     fn default_working_animation_is_droplet() {
-        assert_eq!(
-            AppletConfig::default().visualization.working_animation,
-            WorkingAnimationTheme::Droplet
-        );
+        let cfg = AppletConfig::default();
+        for look in [&cfg.visualization.stt, &cfg.visualization.tts] {
+            assert_eq!(look.working_animation, WorkingAnimationTheme::Droplet);
+        }
     }
 
     #[test]
     fn round_trips_through_toml() {
         let mut cfg = AppletConfig::default();
-        cfg.visualization.working_animation = WorkingAnimationTheme::Comet;
+        cfg.visualization.stt.working_animation = WorkingAnimationTheme::Comet;
         let s = toml::to_string_pretty(&cfg).expect("serialize");
         let back: AppletConfig = toml::from_str(&s).expect("deserialize");
         assert_eq!(
-            back.visualization.working_animation,
+            back.visualization.stt.working_animation,
             WorkingAnimationTheme::Comet
         );
     }
@@ -215,10 +274,97 @@ mod working_animation_config_tests {
             "test setup: line not removed"
         );
         let cfg: AppletConfig = toml::from_str(&without).expect("old config must still parse");
-        assert_eq!(
-            cfg.visualization.working_animation,
-            WorkingAnimationTheme::Droplet
+        for look in [&cfg.visualization.stt, &cfg.visualization.tts] {
+            assert_eq!(look.working_animation, WorkingAnimationTheme::Droplet);
+        }
+    }
+}
+
+#[cfg(test)]
+mod per_product_tests {
+    //! Each product has its own `[visualization.stt]` or `[visualization.tts]`
+    //! table. Every config written before that keeps one set of settings at
+    //! the top of `[visualization]`, which has to reach both products.
+    use super::{AppletConfig, ProductVisualization};
+    use crate::models::theme::{VisualizationColor, VisualizationTheme, WorkingAnimationTheme};
+    use crate::products::Product;
+
+    #[test]
+    fn each_product_keeps_its_own_settings_through_a_save() {
+        let mut cfg = AppletConfig::default();
+        cfg.visualization.stt = ProductVisualization {
+            theme: VisualizationTheme::Waveform,
+            working_animation: WorkingAnimationTheme::Comet,
+            ..ProductVisualization::default()
+        };
+        cfg.visualization.stt.colors.dark_colors = VisualizationColor::Blue;
+        cfg.visualization.tts = ProductVisualization {
+            theme: VisualizationTheme::Pulse,
+            working_animation: WorkingAnimationTheme::Dots,
+            ..ProductVisualization::default()
+        };
+        cfg.visualization.tts.colors.dark_colors = VisualizationColor::Orange;
+
+        let saved = toml::to_string_pretty(&cfg).expect("serialize");
+        let (back, was_reset) = AppletConfig::parse_or_reset(&saved);
+
+        assert!(!was_reset, "a saved config must load:\n{saved}");
+        assert_eq!(back.visualization.stt, cfg.visualization.stt);
+        assert_eq!(back.visualization.tts, cfg.visualization.tts);
+    }
+
+    #[test]
+    fn a_product_without_a_table_takes_the_shared_settings() {
+        let cfg: AppletConfig = toml::from_str(
+            r#"
+[visualization]
+theme = "Pulse"
+side = "Full"
+
+[visualization.colors]
+light_colors = "Red"
+dark_colors = "PastelRed"
+
+[visualization.tts]
+theme = "Waveform"
+
+[ui]
+show_icon = true
+applet_width = 120
+show_visualization = true
+"#,
+        )
+        .expect("must parse");
+
+        let stt = cfg.visualization.product(Product::Stt);
+        assert_eq!(stt.theme, VisualizationTheme::Pulse);
+        assert_eq!(stt.colors.dark_colors, VisualizationColor::PastelRed);
+        // A table of its own wins outright: what it leaves out is the default,
+        // not the shared value.
+        let tts = cfg.visualization.product(Product::Tts);
+        assert_eq!(tts.theme, VisualizationTheme::Waveform);
+        assert_eq!(tts.colors.dark_colors, VisualizationColor::SystemAccent);
+    }
+
+    #[test]
+    fn a_malformed_product_table_falls_back_without_a_reset() {
+        let (cfg, was_reset) = AppletConfig::parse_or_reset(
+            r#"
+[visualization]
+theme = "Pulse"
+side = "Full"
+stt = "not a table"
+
+[ui]
+show_icon = true
+applet_width = 200
+show_visualization = true
+"#,
         );
+
+        assert!(!was_reset, "one bad table must not cost the whole config");
+        assert_eq!(cfg.visualization.stt.theme, VisualizationTheme::Pulse);
+        assert_eq!(cfg.ui.applet_width, 200);
     }
 }
 
@@ -245,20 +391,17 @@ mod upgrade_compat_tests {
             !was_reset,
             "a valid v0.1.3 applet config must load, not reset"
         );
-        assert_eq!(cfg.visualization.theme, VisualizationTheme::Waveform);
-        assert_eq!(
-            cfg.visualization.colors.light_colors,
-            VisualizationColor::Blue
-        );
+        // Its one set of settings reaches both products.
+        for look in [&cfg.visualization.stt, &cfg.visualization.tts] {
+            assert_eq!(look.theme, VisualizationTheme::Waveform);
+            assert_eq!(look.colors.light_colors, VisualizationColor::Blue);
+            assert_eq!(look.colors.dark_colors, VisualizationColor::PastelGreen);
+            // New field materializes at its default.
+            assert_eq!(look.working_animation, WorkingAnimationTheme::default());
+        }
         assert_eq!(cfg.ui.applet_width, 150);
         assert_eq!(cfg.ui.icon_alignment, IconAlignment::End);
-        // New field materializes at its default.
-        assert_eq!(
-            cfg.visualization.working_animation,
-            WorkingAnimationTheme::default()
-        );
     }
-
     #[test]
     fn all_published_applet_configs_load_cleanly() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/configs");
@@ -297,7 +440,8 @@ mod upgrade_compat_tests {
     fn corrupt_applet_config_resets_to_default() {
         let (cfg, was_reset) = AppletConfig::parse_or_reset("not ::: valid toml [");
         assert!(was_reset, "garbage input must trigger a reset");
-        assert_eq!(cfg.visualization.theme, VisualizationTheme::default());
+        assert_eq!(cfg.visualization.stt.theme, VisualizationTheme::default());
+        assert_eq!(cfg.visualization.tts.theme, VisualizationTheme::default());
     }
 
     #[test]
@@ -322,12 +466,11 @@ applet_width = 150
 show_visualization = true
 "#;
         let cfg: AppletConfig = toml::from_str(toml_str).expect("must parse, not error");
-        assert_eq!(cfg.visualization.theme, VisualizationTheme::default()); // reset
+        for look in [&cfg.visualization.stt, &cfg.visualization.tts] {
+            assert_eq!(look.theme, VisualizationTheme::default()); // reset
+            assert_eq!(look.colors.light_colors, VisualizationColor::Blue); // preserved
+        }
         assert_eq!(cfg.ui.icon_alignment, IconAlignment::default()); // bad value → default
-        assert_eq!(
-            cfg.visualization.colors.light_colors,
-            VisualizationColor::Blue
-        ); // preserved
         assert_eq!(cfg.ui.applet_width, 150); // preserved
         assert!(cfg.ui.show_icon);
     }

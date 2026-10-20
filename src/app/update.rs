@@ -33,16 +33,24 @@ impl SuperApplet {
                 cosmic_app::Task::none()
             }
             Message::RevealerToggle(src) => self.revealer_toggle(src),
-            Message::SetVisualizationTheme(theme) => self.set_visualization_theme(theme),
-            Message::SetWorkingAnimation(theme) => self.set_working_animation(theme),
+            Message::SelectSettingsTab(product) => {
+                self.picked_settings_tab = product;
+                cosmic_app::Task::none()
+            }
+            Message::SetVisualizationTheme(product, theme) => {
+                self.set_visualization_theme(product, theme)
+            }
+            Message::SetWorkingAnimation(product, theme) => {
+                self.set_working_animation(product, theme)
+            }
             Message::OpenGitHub => Self::open_github(),
             Message::LaunchApp(product) => Self::launch_app(product),
             Message::SetAppletWidth(width) => self.set_applet_width(width),
             Message::SetShowIcon(show_icon) => self.set_show_icon(show_icon),
             Message::SetIconAlignmentEntity(entity) => self.set_icon_alignment(entity),
             Message::SetShowVisualizations(show) => self.set_show_visualizations(show),
-            Message::SetVisualizationColor(color, is_dark) => {
-                self.set_visualization_color(color, is_dark)
+            Message::SetVisualizationColor(product, color, is_dark) => {
+                self.set_visualization_color(product, color, is_dark)
             }
             Message::SetColorThemeEntity(entity) => self.set_color_theme(entity),
             Message::WorkingAnimationTick => {
@@ -324,7 +332,7 @@ impl SuperApplet {
 
     /// Keep `shown` on the product in front, clearing the bars and restarting
     /// the animation when that changes, so the panel never draws one
-    /// product's audio as the other's.
+    /// product's audio as the other's, nor in the other's look.
     fn sync_shown(&mut self) {
         let front = self.front();
         if front != self.shown {
@@ -333,7 +341,20 @@ impl SuperApplet {
             self.audio_level = 0.0;
             self.is_speech_detected = false;
             self.shown = front;
+            self.apply_look();
         }
+    }
+
+    /// Give the drawing components the look of the product they draw.
+    fn apply_look(&mut self) {
+        let Some(product) = self.shown else {
+            return;
+        };
+        let look = self.config.visualization.product(product);
+        self.visualization.update_theme(look.theme.clone());
+        self.visualization.update_colors(look.colors.clone());
+        self.working_animation.update_theme(look.working_animation);
+        self.working_animation.update_colors(look.colors.clone());
     }
 
     fn frequency_bands(
@@ -385,20 +406,32 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn set_visualization_theme(&mut self, theme: VisualizationTheme) -> cosmic_app::Task<Message> {
+    fn set_visualization_theme(
+        &mut self,
+        product: Product,
+        theme: VisualizationTheme,
+    ) -> cosmic_app::Task<Message> {
         self.config
-            .update(|c| c.visualization.theme = theme.clone());
-        self.visualization.update_theme(theme);
-        self.visualization
-            .update_audio_level(self.audio_level, self.is_speech_detected);
+            .update(|c| c.visualization.product_mut(product).theme = theme);
+        if self.shown == Some(product) {
+            self.apply_look();
+            self.visualization
+                .update_audio_level(self.audio_level, self.is_speech_detected);
+        }
         self.is_open = IsOpen::None;
         cosmic_app::Task::none()
     }
 
-    fn set_working_animation(&mut self, theme: WorkingAnimationTheme) -> cosmic_app::Task<Message> {
+    fn set_working_animation(
+        &mut self,
+        product: Product,
+        theme: WorkingAnimationTheme,
+    ) -> cosmic_app::Task<Message> {
         self.config
-            .update(|c| c.visualization.working_animation = theme);
-        self.working_animation.update_theme(theme);
+            .update(|c| c.visualization.product_mut(product).working_animation = theme);
+        if self.shown == Some(product) {
+            self.apply_look();
+        }
         self.is_open = IsOpen::None;
         cosmic_app::Task::none()
     }
@@ -481,15 +514,19 @@ impl SuperApplet {
 
     fn set_visualization_color(
         &mut self,
+        product: Product,
         color: VisualizationColor,
         is_dark: bool,
     ) -> cosmic_app::Task<Message> {
-        let mut updated_colors = self.config.visualization.colors.clone();
-        updated_colors.set_color(color, is_dark);
-        self.config
-            .update(|c| c.visualization.colors = updated_colors.clone());
-        self.working_animation.update_colors(updated_colors.clone());
-        self.visualization.update_colors(updated_colors);
+        self.config.update(|c| {
+            c.visualization
+                .product_mut(product)
+                .colors
+                .set_color(color, is_dark);
+        });
+        if self.shown == Some(product) {
+            self.apply_look();
+        }
         cosmic_app::Task::none()
     }
 

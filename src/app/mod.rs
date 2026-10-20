@@ -80,6 +80,16 @@ fn pick_front(active: &[Product], alternate: bool) -> Option<Product> {
     }
 }
 
+/// The product whose tab the popup's settings show: the one last picked while
+/// it is installed, else the first installed one.
+fn pick_settings_tab(installed: &[Product], picked: Product) -> Option<Product> {
+    if installed.contains(&picked) {
+        Some(picked)
+    } else {
+        installed.first().copied()
+    }
+}
+
 pub struct SuperApplet {
     core: cosmic::app::Core,
     /// One link per product, in `Product::ALL` order.
@@ -105,6 +115,9 @@ pub struct SuperApplet {
     theme_selector_light: Entity,
     theme_selector_dark: Entity,
     selected_theme_for_config: bool, // false = light, true = dark
+    /// The settings tab last picked. The popup falls back to another
+    /// installed product's while this one isn't installed.
+    picked_settings_tab: Product,
 }
 
 impl SuperApplet {
@@ -127,6 +140,19 @@ impl SuperApplet {
     /// The product whose activity the panel shows, if any is active.
     fn front(&self) -> Option<Product> {
         pick_front(&self.active_products(), self.alternate)
+    }
+
+    fn installed_products(&self) -> Vec<Product> {
+        self.links
+            .iter()
+            .filter(|l| l.installed)
+            .map(|l| l.product)
+            .collect()
+    }
+
+    /// The product whose settings the popup shows, if any is installed.
+    fn settings_tab(&self) -> Option<Product> {
+        pick_settings_tab(&self.installed_products(), self.picked_settings_tab)
     }
 }
 
@@ -211,8 +237,25 @@ impl cosmic::Application for SuperApplet {
 
 #[cfg(test)]
 mod tests {
-    use super::pick_front;
+    use super::{pick_front, pick_settings_tab};
     use crate::products::Product::{Stt, Tts};
+
+    #[test]
+    fn the_picked_settings_tab_stays_while_its_product_is_installed() {
+        assert_eq!(pick_settings_tab(&[Stt, Tts], Tts), Some(Tts));
+        assert_eq!(pick_settings_tab(&[Tts], Tts), Some(Tts));
+    }
+
+    #[test]
+    fn a_settings_tab_for_a_removed_product_falls_back_to_an_installed_one() {
+        assert_eq!(pick_settings_tab(&[Stt], Tts), Some(Stt));
+        assert_eq!(pick_settings_tab(&[Tts], Stt), Some(Tts));
+    }
+
+    #[test]
+    fn with_nothing_installed_there_is_no_settings_tab() {
+        assert_eq!(pick_settings_tab(&[], Stt), None);
+    }
 
     #[test]
     fn nothing_active_shows_the_icon() {

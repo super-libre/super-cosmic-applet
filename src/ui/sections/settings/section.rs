@@ -7,28 +7,34 @@ use cosmic::{
         widget::{column, row, slider},
     },
     theme,
-    widget::{
-        Space, divider, segmented_button::SingleSelectModel, segmented_control, text, toggler,
-    },
+    widget::{Space, divider, segmented_control, text, toggler},
 };
 
 use crate::{
     app::Message,
-    config::AppletConfig,
-    models::state::IsOpen,
-    ui::sections::settings::components::visualization_theme::{
-        create_visualization_color_selector, create_visualization_theme_selector,
-        create_working_animation_selector,
+    products::Product,
+    ui::{
+        components::tabs::product_tabs,
+        sections::settings::components::visualization_theme::{
+            create_visualization_color_selector, create_visualization_theme_selector,
+            create_working_animation_selector,
+        },
+        views::PopupContentParams,
     },
 };
 
+/// The applet's settings. The panel's own (the visualization's size, the
+/// icon) are shared; how each product's activity is drawn sits under a tab
+/// per installed product, showing `tab`'s.
 pub fn create_applet_settings_section<'a>(
-    config: &AppletConfig,
-    is_open: &IsOpen,
-    icon_alignment_model: &'a SingleSelectModel,
-    theme_selector_model: &'a SingleSelectModel,
-    selected_theme_for_config: bool,
+    params: &PopupContentParams<'a>,
+    tab: Product,
 ) -> Element<'a, Message> {
+    let PopupContentParams {
+        config,
+        icon_alignment_model,
+        ..
+    } = *params;
     let spacing = theme::active().cosmic().spacing;
 
     let mut settings_column = column![
@@ -65,14 +71,7 @@ pub fn create_applet_settings_section<'a>(
                     .spacing(spacing.space_xxs)
                     .apply(Element::from)
                 ),
-                create_visualization_theme_selector(&config.visualization.theme, is_open),
-                create_working_animation_selector(config.visualization.working_animation, is_open),
-                create_visualization_color_selector(
-                    &config.visualization.colors,
-                    is_open,
-                    theme_selector_model,
-                    selected_theme_for_config
-                )
+                create_product_settings(params, tab),
             ]
             .spacing(spacing.space_xxs)
             .apply(Element::from),
@@ -115,4 +114,45 @@ pub fn create_applet_settings_section<'a>(
     }
 
     settings_column.apply(Element::from)
+}
+
+/// How `tab`'s activity is drawn, under a tab bar of the installed products.
+/// With one product installed there is nothing to switch between, so it gets
+/// no tab bar.
+fn create_product_settings<'a>(
+    params: &PopupContentParams<'a>,
+    tab: Product,
+) -> Element<'a, Message> {
+    let spacing = theme::active().cosmic().spacing;
+    let look = params.config.visualization.product(tab);
+    let installed: Vec<Product> = params
+        .links
+        .iter()
+        .filter(|l| l.installed)
+        .map(|l| l.product)
+        .collect();
+
+    let mut settings = column![].spacing(spacing.space_xxs).width(Length::Fill);
+    if installed.len() > 1 {
+        settings = settings.push(padded_control(product_tabs(&installed, tab)));
+    }
+    settings
+        .push(create_visualization_theme_selector(
+            tab,
+            &look.theme,
+            params.is_open,
+        ))
+        .push(create_working_animation_selector(
+            tab,
+            look.working_animation,
+            params.is_open,
+        ))
+        .push(create_visualization_color_selector(
+            tab,
+            &look.colors,
+            params.is_open,
+            params.theme_selector_model,
+            params.selected_theme_for_config,
+        ))
+        .apply(Element::from)
 }
