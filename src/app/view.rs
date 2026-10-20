@@ -105,6 +105,7 @@ impl SuperApplet {
             icon_alignment_model: &self.icon_alignment_model,
             theme_selector_model: &self.theme_selector_model,
             selected_theme_for_config: self.selected_theme_for_config,
+            settings_tab: self.settings_tab(),
         });
 
         self.core.applet.popup_container(content).into()

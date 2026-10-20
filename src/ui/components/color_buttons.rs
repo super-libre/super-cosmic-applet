@@ -6,9 +6,10 @@ use cosmic::{
     widget::{Space, container, mouse_area, text},
 };
 
-use crate::{app::Message, models::theme::VisualizationColor};
+use crate::{app::Message, models::theme::VisualizationColor, products::Product};
 
 pub fn create_system_accent_button<'a>(
+    product: Product,
     selected_theme_is_dark: bool,
     cosmic_theme: &cosmic::cosmic_theme::Theme,
     current_selected_color: &VisualizationColor,
@@ -103,6 +104,7 @@ pub fn create_system_accent_button<'a>(
             }),
         )
         .on_press(Message::SetVisualizationColor(
+            product,
             VisualizationColor::SystemAccent,
             selected_theme_is_dark,
         ))

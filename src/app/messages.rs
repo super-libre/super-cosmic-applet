@@ -20,15 +20,17 @@ pub enum Message {
     OpenGitHub,
     LaunchApp(Product),
     RevealerToggle(IsOpen),
-    SetVisualizationTheme(VisualizationTheme),
+    /// Show this product's tab of the per-product settings.
+    SelectSettingsTab(Product),
+    SetVisualizationTheme(Product, VisualizationTheme),
     /// Pick the working animation style.
-    SetWorkingAnimation(WorkingAnimationTheme),
+    SetWorkingAnimation(Product, WorkingAnimationTheme),
     SetAppletWidth(u32),
     SetShowIcon(bool),
     SetIconAlignmentEntity(Entity),
     SetShowVisualizations(bool),
-    SetVisualizationColor(VisualizationColor, bool), // Color and is_dark flag
-    SetColorThemeEntity(Entity),                     // Theme selector for color configuration
+    SetVisualizationColor(Product, VisualizationColor, bool), // Color and is_dark flag
+    SetColorThemeEntity(Entity), // Theme selector for color configuration
     /// Animation frame tick while a product works (drives the working animation).
     WorkingAnimationTick,
 }

@@ -5,6 +5,7 @@ use crate::{
     models::theme::{
         VisualizationColor, VisualizationColorConfig, VisualizationTheme, WorkingAnimationTheme,
     },
+    products::Product,
     ui::components::{
         color_buttons::{create_color_button, create_system_accent_button},
         common::{revealer, revealer_head},
@@ -22,6 +23,7 @@ use cosmic::{
 };
 
 pub fn create_visualization_theme_selector<'a>(
+    product: Product,
     selected_theme: &VisualizationTheme,
     is_open: &IsOpen,
 ) -> Element<'a, Message> {
@@ -43,15 +45,18 @@ pub fn create_visualization_theme_selector<'a>(
         selected_theme.pretty_name(),
         &options,
         Message::RevealerToggle(IsOpen::VisualizationTheme),
-        |theme_str| Message::SetVisualizationTheme(theme_str.parse().unwrap_or_default()),
+        move |theme_str| {
+            Message::SetVisualizationTheme(product, theme_str.parse().unwrap_or_default())
+        },
     )
     .apply(Element::from)
 }
 
-/// Dropdown selector for the working/transcribing animation. Mirrors
+/// Dropdown selector for the working animation. Mirrors
 /// [`create_visualization_theme_selector`]; the chosen style drives the
-/// animation shown while the daemon transcribes.
+/// animation shown while `product` transcribes or synthesizes.
 pub fn create_working_animation_selector<'a>(
+    product: Product,
     selected: WorkingAnimationTheme,
     is_open: &IsOpen,
 ) -> Element<'a, Message> {
@@ -72,12 +77,13 @@ pub fn create_working_animation_selector<'a>(
         selected.pretty_name(),
         &options,
         Message::RevealerToggle(IsOpen::WorkingAnimation),
-        |anim_str| Message::SetWorkingAnimation(anim_str.parse().unwrap_or_default()),
+        move |anim_str| Message::SetWorkingAnimation(product, anim_str.parse().unwrap_or_default()),
     )
     .apply(Element::from)
 }
 
 pub fn create_visualization_color_selector<'a>(
+    product: Product,
     color_config: &VisualizationColorConfig,
     is_open: &IsOpen,
     theme_selector_model: &'a SingleSelectModel,
@@ -106,6 +112,7 @@ pub fn create_visualization_color_selector<'a>(
             .padding([8, 48]),
             // Theme-specific color controls
             create_theme_color_section(
+                product,
                 selected_theme_for_config,
                 &color_config.get_color(selected_theme_for_config)
             ),
@@ -124,6 +131,7 @@ pub fn create_visualization_color_selector<'a>(
 }
 
 fn create_colors_row<'a>(
+    product: Product,
     colors: &[VisualizationColor],
     selected_theme_is_dark: bool,
     current_selected_color: &VisualizationColor,
@@ -133,7 +141,7 @@ fn create_colors_row<'a>(
         light_colors_row = light_colors_row.push(create_color_button(
             color.to_color(),
             color,
-            Message::SetVisualizationColor(color.clone(), selected_theme_is_dark),
+            Message::SetVisualizationColor(product, color.clone(), selected_theme_is_dark),
             20.0,
             current_selected_color == color,
         ));
@@ -145,6 +153,7 @@ fn create_colors_row<'a>(
 }
 
 fn create_theme_color_section<'a>(
+    product: Product,
     selected_theme_is_dark: bool,
     current_selected_color: &VisualizationColor,
 ) -> Element<'a, Message> {
@@ -199,6 +208,7 @@ fn create_theme_color_section<'a>(
             text::caption("Default Colors").width(Length::Fill),
             // Dedicated System Accent row - full width button
             create_system_accent_button(
+                product,
                 selected_theme_is_dark,
                 current_cosmic_theme,
                 current_selected_color
@@ -207,15 +217,22 @@ fn create_theme_color_section<'a>(
             text::caption("Custom Colors").width(Length::Fill),
             // Top row of colors
             create_colors_row(
+                product,
                 &light_colors,
                 selected_theme_is_dark,
                 current_selected_color
             )
             .spacing(0u16),
             // Row of dark colors
-            create_colors_row(&dark_colors, selected_theme_is_dark, current_selected_color),
+            create_colors_row(
+                product,
+                &dark_colors,
+                selected_theme_is_dark,
+                current_selected_color
+            ),
             // Row of pastel colors
             create_colors_row(
+                product,
                 &pastel_colors,
                 selected_theme_is_dark,
                 current_selected_color

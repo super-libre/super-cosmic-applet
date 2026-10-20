@@ -13,6 +13,8 @@ one is doing:
 2. While Super TTS speaks, it draws what is playing. While it prepares the first
    audio, it shows the same working animation.
 3. When both are active at once, it switches between them every few seconds.
+   Each product has its own style, loading animation and colors, set under its
+   tab in the popup.
 4. The rest of the time it shows its icon. Click it for settings and each
    product's status.
 
