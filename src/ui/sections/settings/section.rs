@@ -23,9 +23,9 @@ use crate::{
     },
 };
 
-/// The applet's settings. The panel's own (the visualization's size, the
-/// icon) are shared; how each product's activity is drawn sits under a tab
-/// per installed product, showing `tab`'s.
+/// The applet's settings. The panel's own (the icon, the visualization's
+/// size) come first and are shared; how each product's activity is drawn sits
+/// below them, under a tab per installed product, showing `tab`'s.
 pub fn create_applet_settings_section<'a>(
     params: &PopupContentParams<'a>,
     tab: Product,
@@ -38,6 +38,44 @@ pub fn create_applet_settings_section<'a>(
     let spacing = theme::active().cosmic().spacing;
 
     let mut settings_column = column![
+        // Show icon toggle
+        padded_control(
+            row![
+                text::body("Show Icon"),
+                Space::new().width(Length::Fill),
+                toggler(config.ui.show_icon).on_toggle(Message::SetShowIcon)
+            ]
+            .spacing(spacing.space_xs)
+            .align_y(Alignment::Center),
+        ),
+    ]
+    .spacing(spacing.space_xs)
+    .width(Length::Fill);
+
+    // Icon alignment selector (only show if icon is enabled)
+    if config.ui.show_icon {
+        settings_column = settings_column.push(
+            padded_control(
+                column![
+                    text::body("Icon Position"),
+                    segmented_control::horizontal(icon_alignment_model)
+                        .on_activate(Message::SetIconAlignmentEntity)
+                ]
+                .spacing(spacing.space_xxs)
+                .apply(Element::from),
+            )
+            .apply(Element::from),
+        );
+    }
+
+    settings_column = settings_column.push(
+        padded_control(divider::horizontal::default())
+            .padding([0, spacing.space_s])
+            .apply(Element::from),
+    );
+
+    // Last, so the toggle sits right above the tabs it hides.
+    settings_column = settings_column.push(
         // Show visualizations toggle
         padded_control(
             row![
@@ -48,9 +86,7 @@ pub fn create_applet_settings_section<'a>(
             .spacing(spacing.space_xs)
             .align_y(Alignment::Center),
         ),
-    ]
-    .spacing(spacing.space_xs)
-    .width(Length::Fill);
+    );
 
     // Visualization size slide (only show if the visualization is enabled)
     if config.ui.show_visualization {
@@ -74,41 +110,6 @@ pub fn create_applet_settings_section<'a>(
                 create_product_settings(params, tab),
             ]
             .spacing(spacing.space_xxs)
-            .apply(Element::from),
-        );
-    }
-
-    settings_column = settings_column.push(
-        padded_control(divider::horizontal::default())
-            .padding([0, spacing.space_s])
-            .apply(Element::from),
-    );
-
-    settings_column = settings_column.push(
-        // Show icon toggle
-        padded_control(
-            row![
-                text::body("Show Icon"),
-                Space::new().width(Length::Fill),
-                toggler(config.ui.show_icon).on_toggle(Message::SetShowIcon)
-            ]
-            .spacing(spacing.space_xs)
-            .align_y(Alignment::Center),
-        ),
-    );
-
-    // Icon alignment selector (only show if icon is enabled)
-    if config.ui.show_icon {
-        settings_column = settings_column.push(
-            padded_control(
-                column![
-                    text::body("Icon Position"),
-                    segmented_control::horizontal(icon_alignment_model)
-                        .on_activate(Message::SetIconAlignmentEntity)
-                ]
-                .spacing(spacing.space_xxs)
-                .apply(Element::from),
-            )
             .apply(Element::from),
         );
     }
