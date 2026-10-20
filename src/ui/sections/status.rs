@@ -6,30 +6,34 @@ use cosmic::{
     widget::{button, text},
 };
 
-/// One status line per installed product, or a note that neither is.
-pub fn create_status_section(links: &[ProductLink]) -> Element<'static, Message> {
-    let installed: Vec<&ProductLink> = links.iter().filter(|l| l.installed).collect();
-    if installed.is_empty() {
-        return column![
-            text("Neither Super STT nor Super TTS is installed.").size(12),
-            text("Install either one to use this applet.").size(10),
-        ]
-        .spacing(4)
-        .into();
+/// A status line for each installed product that isn't connected, or a note
+/// that neither is installed. A connected product needs no line: its settings
+/// tab and its launch button already show it is there. `None` once every
+/// installed product is connected.
+pub fn create_status_section(links: &[ProductLink]) -> Option<Element<'static, Message>> {
+    if !links.iter().any(|l| l.installed) {
+        return Some(
+            column![
+                text("Neither Super STT nor Super TTS is installed.").size(12),
+                text("Install either one to use this applet.").size(10),
+            ]
+            .spacing(4)
+            .into(),
+        );
     }
-    installed
-        .into_iter()
-        .fold(Column::new().spacing(10), |col, link| {
-            col.push(product_status(link))
-        })
-        .into()
+    let statuses: Vec<Element<'static, Message>> = links
+        .iter()
+        .filter(|l| l.installed)
+        .filter_map(product_status)
+        .collect();
+    (!statuses.is_empty()).then(|| Column::with_children(statuses).spacing(10).into())
 }
 
-fn product_status(link: &ProductLink) -> Element<'static, Message> {
+fn product_status(link: &ProductLink) -> Option<Element<'static, Message>> {
     let product = link.product;
     let name = product.display_name();
-    match &link.daemon_state {
-        DaemonConnectionState::Connected => text(format!("{name}: connected")).size(12).into(),
+    Some(match &link.daemon_state {
+        DaemonConnectionState::Connected => return None,
         DaemonConnectionState::Connecting => column![
             text(format!("{name}: connecting")).size(12),
             text("The daemon may still be starting.").size(10),
@@ -59,5 +63,5 @@ fn product_status(link: &ProductLink) -> Element<'static, Message> {
         ]
         .spacing(6)
         .into(),
-    }
+    })
 }

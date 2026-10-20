@@ -45,11 +45,14 @@ pub fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, 
         padded_control(create_app_info_section())
             .padding(menu_control_padding())
             .apply(Element::from),
-        divider(),
-        padded_control(create_status_section(params.links))
-            .padding(menu_control_padding())
-            .apply(Element::from),
     ];
+    if let Some(status) = create_status_section(params.links) {
+        content = content.push(divider()).push(
+            padded_control(status)
+                .padding(menu_control_padding())
+                .apply(Element::from),
+        );
+    }
     // The settings appear once either daemon is connected, with a tab for
     // each installed product's own.
     if let Some(tab) = params.settings_tab.filter(|_| any_connected) {
