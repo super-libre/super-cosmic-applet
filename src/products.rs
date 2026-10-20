@@ -80,6 +80,12 @@ impl Product {
         format!("{}-app", self.spec().slug)
     }
 
+    /// The settings app's icon in the icon theme: the name its desktop entry
+    /// gives, which is the app's binary.
+    pub fn app_icon(self) -> String {
+        self.app_binary()
+    }
+
     /// Whether the product is installed on this machine: its daemon binary
     /// sits beside the applet, as both installers put them, or on `PATH`.
     ///
