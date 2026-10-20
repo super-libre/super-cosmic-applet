@@ -70,8 +70,8 @@ impl SuperApplet {
         core: cosmic::app::Core,
         visualization_side: VisualizationSide,
     ) -> (Self, cosmic_app::Task<Message>) {
-        let variant_name = AppletConfig::get_variant_name(&visualization_side);
-        let config = AppletConfig::load(variant_name, visualization_side.clone());
+        // Shared by every side: only what this one draws is its own.
+        let config = AppletConfig::load();
 
         // Nothing is in front yet: the first product to become active swaps
         // its own look in (`sync_shown`).

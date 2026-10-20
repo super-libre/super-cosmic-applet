@@ -39,6 +39,12 @@
         features = ["default", "applet", "tokio"],
     }
     log = "0.4.29"
+    # Watches the settings file, so a change in one applet's popup reaches the
+    # others. The version libcosmic's own config watcher uses.
+    notify = "8.2.0"
+    # The settings file's format, and the version libcosmic writes its own
+    # config with.
+    ron = "0.12.2"
     serde = { version = "1.0.219", features = ["derive"] }
     serde_json = "1.0.149"
     # The applet talks to both daemons through super-engine's client, and takes
@@ -67,6 +73,7 @@
         rev = "1e3dc374915d403ba143325ccbab68631e40499d",
     }
     tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
+    # Only to import the per-side TOML configs from before settings.ron.
     toml = "1.0.6"
 
 [lints.clippy]

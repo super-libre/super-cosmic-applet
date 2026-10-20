@@ -23,7 +23,7 @@ use crate::models::theme::VisualizationSide;
 use crate::products::Product;
 use crate::ui::components::sound_visualization::VisualizationComponent;
 use crate::ui::components::working_animation_component::WorkingAnimationComponent;
-use subscription::{EventsSubscriptionId, PING_INTERVAL_SECS, events_subscription};
+use subscription::{EventsSubscriptionId, PING_INTERVAL_SECS, events_subscription, settings_watch};
 
 /// How long the panel shows one product's visualization before the other's,
 /// when both are active at once.
@@ -200,6 +200,7 @@ impl cosmic::Application for SuperApplet {
             cosmic::iced::time::every(Duration::from_secs(PING_INTERVAL_SECS))
                 .map(|_| Message::PingTimeout),
         );
+        subs.push(Subscription::run(settings_watch));
         if self.active_products().len() > 1 {
             subs.push(
                 cosmic::iced::time::every(Duration::from_secs(ALTERNATE_SECS))

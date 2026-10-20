@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use cosmic::iced::futures::Stream;
+use cosmic::iced::futures::{Stream, channel::mpsc};
 use futures_util::{SinkExt, StreamExt};
 use log::{info, warn};
+use notify::{
+    Event, EventKind, RecursiveMode, Watcher,
+    event::{AccessKind, AccessMode},
+};
+use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::pin::Pin;
 use super_engine_client::http_client::WidgetEvent;
 use super_engine_client::widget_subscription::{
@@ -9,6 +15,7 @@ use super_engine_client::widget_subscription::{
 };
 
 use crate::app::{DaemonMessage, Message};
+use crate::config::{AppletConfig, SETTINGS_FILE};
 use crate::products::{APP_NAME, Product};
 use crate::util::f64_to_f32;
 
@@ -53,6 +60,80 @@ pub(super) fn events_subscription(
             info!("{} subscription ended", product.display_name());
         },
     ))
+}
+
+/// Watches the settings file and reports what another applet, or a hand
+/// edit, saved to it. Each side of each panel is its own process, so this is
+/// how a change made in one popup reaches the others.
+///
+/// It watches the directory rather than the file: a save renames a new file
+/// over the old one, which would end a watch on the file itself. Without a
+/// watch the applet still works, only unsynced, so a failure to set one up
+/// is logged and the subscription ends.
+pub(super) fn settings_watch() -> Pin<Box<dyn Stream<Item = Message> + Send>> {
+    watch_settings(AppletConfig::config_dir())
+}
+
+/// [`settings_watch`], on the settings file in `dir`.
+fn watch_settings(dir: PathBuf) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
+    Box::pin(cosmic::iced::stream::channel(
+        8,
+        async move |mut channel| {
+            let path = dir.join(SETTINGS_FILE);
+            let (events, mut received) = mpsc::unbounded();
+            let watcher = std::fs::create_dir_all(&dir)
+                .map_err(notify::Error::io)
+                .and_then(|()| {
+                    notify::recommended_watcher(move |event| {
+                        let _ = events.unbounded_send(event);
+                    })
+                })
+                .and_then(|mut watcher| {
+                    watcher.watch(&dir, RecursiveMode::NonRecursive)?;
+                    Ok(watcher)
+                });
+            // Held for as long as the loop runs: dropping it ends the watch.
+            let _watcher = match watcher {
+                Ok(watcher) => watcher,
+                Err(e) => {
+                    warn!("Can't watch {} for settings changes: {e}", dir.display());
+                    return;
+                }
+            };
+            while let Some(event) = received.next().await {
+                match event {
+                    Ok(event) if saves_settings(&event) => {
+                        if let Some(config) = AppletConfig::read_new(&path)
+                            && channel
+                                .send(Message::SettingsChanged(config))
+                                .await
+                                .is_err()
+                        {
+                            break; // applet shutting down
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => warn!("Settings watch: {e}"),
+                }
+            }
+        },
+    ))
+}
+
+/// Whether `event` may leave new settings in the file. Of the accesses, only
+/// the end of a write counts: inotify reports opens too, and the applet opens
+/// the file to read it, so counting those would answer every read with
+/// another.
+fn saves_settings(event: &Event) -> bool {
+    let counts = match event.kind {
+        EventKind::Access(access) => access == AccessKind::Close(AccessMode::Write),
+        _ => true,
+    };
+    counts
+        && event
+            .paths
+            .iter()
+            .any(|path| path.file_name() == Some(OsStr::new(SETTINGS_FILE)))
 }
 
 /// Project a [`WidgetSubscriptionUpdate`] into the applet's [`DaemonMessage`].
@@ -255,5 +336,143 @@ mod widget_subscription_mapping_tests {
             event("subscribed", serde_json::json!({})),
             DaemonMessage::OtherEvent(name) if name == "subscribed"
         ));
+    }
+}
+
+#[cfg(test)]
+mod settings_watch_tests {
+    use super::saves_settings;
+    use crate::config::SETTINGS_FILE;
+    use notify::{
+        Event, EventKind,
+        event::{AccessKind, AccessMode, CreateKind, ModifyKind, RenameMode},
+    };
+    use std::path::PathBuf;
+
+    fn event(kind: EventKind, name: &str) -> Event {
+        Event::new(kind).add_path(PathBuf::from("/config/super-cosmic-applet").join(name))
+    }
+
+    #[test]
+    fn a_save_renaming_the_settings_into_place_counts() {
+        let rename = EventKind::Modify(ModifyKind::Name(RenameMode::To));
+        assert!(saves_settings(&event(rename, SETTINGS_FILE)));
+    }
+
+    #[test]
+    fn a_write_in_place_counts_once_it_is_done() {
+        let closed = EventKind::Access(AccessKind::Close(AccessMode::Write));
+        assert!(saves_settings(&event(closed, SETTINGS_FILE)));
+        let created = EventKind::Create(CreateKind::File);
+        assert!(saves_settings(&event(created, SETTINGS_FILE)));
+    }
+
+    /// Reading the file opens it, and inotify reports that: counting it
+    /// would answer each read with another read.
+    #[test]
+    fn reading_the_settings_does_not_count() {
+        for access in [
+            AccessKind::Open(AccessMode::Any),
+            AccessKind::Close(AccessMode::Read),
+            AccessKind::Read,
+        ] {
+            assert!(!saves_settings(&event(
+                EventKind::Access(access),
+                SETTINGS_FILE
+            )));
+        }
+    }
+
+    /// A save writes a temporary file beside the settings first.
+    #[test]
+    fn other_files_in_the_directory_do_not_count() {
+        let created = EventKind::Create(CreateKind::File);
+        assert!(!saves_settings(&event(
+            created,
+            &format!(".{SETTINGS_FILE}.4242")
+        )));
+        assert!(!saves_settings(&event(created, "applet-full.toml")));
+    }
+
+    /// The watch end to end, on a real directory: what another applet saves
+    /// reaches it, while reading the file, and this applet's own saves, don't.
+    mod live {
+        use super::super::watch_settings;
+        use crate::app::Message;
+        use crate::config::{AppletConfig, SETTINGS_FILE};
+        use futures_util::StreamExt;
+        use std::path::Path;
+        use std::time::Duration;
+
+        /// The next settings the watch reports, if one comes within `wait`.
+        async fn next_settings(
+            watch: &mut (impl futures_util::Stream<Item = Message> + Unpin),
+            wait: Duration,
+        ) -> Option<AppletConfig> {
+            match tokio::time::timeout(wait, watch.next()).await {
+                Ok(Some(Message::SettingsChanged(config))) => Some(config),
+                _ => None,
+            }
+        }
+
+        /// Save `config` as another applet's process would: the same rename
+        /// into place, without this process's record of its own save.
+        fn save_as_another_applet(config: &AppletConfig, dir: &Path) {
+            std::fs::create_dir_all(dir).expect("create dir");
+            let content = ron::ser::to_string_pretty(config, Default::default()).expect("ron");
+            let temporary = dir.join(format!(".{SETTINGS_FILE}.other"));
+            std::fs::write(&temporary, content).expect("write");
+            std::fs::rename(&temporary, dir.join(SETTINGS_FILE)).expect("rename");
+        }
+
+        #[tokio::test]
+        async fn another_applets_save_reaches_the_watch_and_nothing_else_does() {
+            let dir = std::env::temp_dir()
+                .join(format!("super-cosmic-applet-watch-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let mut watch = watch_settings(dir.clone());
+            let mut theirs = AppletConfig::default();
+            theirs.ui.applet_width = 222;
+
+            // The watch starts with the stream, so save until it reports one.
+            let mut seen = None;
+            for _ in 0..50 {
+                save_as_another_applet(&theirs, &dir);
+                seen = next_settings(&mut watch, Duration::from_millis(100)).await;
+                if seen.is_some() {
+                    break;
+                }
+            }
+            assert_eq!(
+                seen.as_ref(),
+                Some(&theirs),
+                "another applet's save never reached the watch"
+            );
+            // Drain whatever else that save produced.
+            while next_settings(&mut watch, Duration::from_millis(200))
+                .await
+                .is_some()
+            {}
+
+            for _ in 0..3 {
+                std::fs::read_to_string(dir.join(SETTINGS_FILE)).expect("read");
+            }
+            assert_eq!(
+                next_settings(&mut watch, Duration::from_millis(500)).await,
+                None,
+                "reading the settings fed back into the watch"
+            );
+
+            let mut ours = theirs.clone();
+            ours.ui.applet_width = 180;
+            ours.save_in(&dir).expect("save");
+            assert_eq!(
+                next_settings(&mut watch, Duration::from_millis(500)).await,
+                None,
+                "this applet's own save came back to it"
+            );
+
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }

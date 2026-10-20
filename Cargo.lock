@@ -4930,6 +4930,8 @@ dependencies = [
  "libc",
  "libcosmic",
  "log",
+ "notify",
+ "ron",
  "serde",
  "serde_json",
  "super-engine-client",

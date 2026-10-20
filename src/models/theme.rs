@@ -320,15 +320,9 @@ impl VisualizationColor {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualizationColorConfig {
-    #[serde(
-        default,
-        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
-    )]
+    #[serde(default, deserialize_with = "crate::config::variant_or_default")]
     pub light_colors: VisualizationColor,
-    #[serde(
-        default,
-        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
-    )]
+    #[serde(default, deserialize_with = "crate::config::variant_or_default")]
     pub dark_colors: VisualizationColor,
 }
 

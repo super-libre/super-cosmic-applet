@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use cosmic::{iced::window, widget::segmented_button::Entity};
 
+use crate::config::AppletConfig;
 use crate::models::{
     state::IsOpen,
     theme::{VisualizationColor, VisualizationTheme, WorkingAnimationTheme},
@@ -31,6 +32,8 @@ pub enum Message {
     SetShowVisualizations(bool),
     SetVisualizationColor(Product, VisualizationColor, bool), // Color and is_dark flag
     SetColorThemeEntity(Entity), // Theme selector for color configuration
+    /// The settings file changed: another applet, or a hand edit, saved it.
+    SettingsChanged(AppletConfig),
     /// Animation frame tick while a product works (drives the working animation).
     WorkingAnimationTick,
 }

@@ -11,6 +11,7 @@ use super_engine_client::session;
 use super::SuperApplet;
 use super::init::ping_or_retry;
 use crate::app::{DaemonMessage, Message};
+use crate::config::AppletConfig;
 use crate::daemon::{RetryStrategy, ping_daemon};
 use crate::models::state::{
     CycleEvent, DaemonConnectionState, IsOpen, Phase, PhaseChange, SpeechEvent,
@@ -53,6 +54,7 @@ impl SuperApplet {
                 self.set_visualization_color(product, color, is_dark)
             }
             Message::SetColorThemeEntity(entity) => self.set_color_theme(entity),
+            Message::SettingsChanged(config) => self.settings_changed(config),
             Message::WorkingAnimationTick => {
                 if let Some(elapsed_ms) = self
                     .front()
@@ -480,16 +482,29 @@ impl SuperApplet {
 
     fn set_applet_width(&mut self, width: u32) -> cosmic_app::Task<Message> {
         self.config.update(|c| c.ui.applet_width = width);
-        // Refresh the visualization so it adapts to the new size.
+        self.resize_visualization();
+        cosmic_app::Task::none()
+    }
+
+    /// Refresh the visualization so it adapts to a new size.
+    fn resize_visualization(&mut self) {
         self.visualization.clear();
         self.visualization
             .update_audio_level(self.audio_level, self.is_speech_detected);
-        cosmic_app::Task::none()
     }
 
     fn set_show_icon(&mut self, show_icon: bool) -> cosmic_app::Task<Message> {
         self.config.update(|c| c.ui.show_icon = show_icon);
         cosmic_app::Task::none()
+    }
+
+    /// The icon-alignment selector's entry for `alignment`.
+    fn icon_alignment_entity(&self, alignment: IconAlignment) -> Entity {
+        match alignment {
+            IconAlignment::Start => self.icon_alignment_start,
+            IconAlignment::Center => self.icon_alignment_center,
+            IconAlignment::End => self.icon_alignment_end,
+        }
     }
 
     fn set_icon_alignment(&mut self, entity: Entity) -> cosmic_app::Task<Message> {
@@ -536,6 +551,23 @@ impl SuperApplet {
             self.selected_theme_for_config = false;
         } else if entity == self.theme_selector_dark {
             self.selected_theme_for_config = true;
+        }
+        cosmic_app::Task::none()
+    }
+
+    /// Take the settings another applet saved, as this one takes its own
+    /// changes, without saving them back.
+    fn settings_changed(&mut self, config: AppletConfig) -> cosmic_app::Task<Message> {
+        if config == self.config {
+            return cosmic_app::Task::none();
+        }
+        let resized = config.ui.applet_width != self.config.ui.applet_width;
+        self.config = config;
+        let entity = self.icon_alignment_entity(self.config.ui.icon_alignment);
+        self.icon_alignment_model.activate(entity);
+        self.apply_look();
+        if resized {
+            self.resize_visualization();
         }
         cosmic_app::Task::none()
     }
