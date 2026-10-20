@@ -274,8 +274,7 @@ mod waveform_tests {
     //! from rectangles, so its geometry has failure modes the bar renderers
     //! don't: a Catmull-Rom curve overshoots around a spike, and the left and
     //! right applets have to meet at the seam without a step. These pin the
-    //! pure math behind `draw`, which needs a live renderer and can't be
-    //! exercised here.
+    //! pure math behind `draw`; `waveform_drawing_tests` draws it.
     use super::*;
     use crate::util::usize_to_f32;
     use cosmic::iced::widget::canvas::path::lyon_path::PathEvent;
@@ -575,5 +574,85 @@ mod waveform_tests {
 
         assert_eq!(stroke.raw().iter().count(), 0);
         assert_eq!(fill.raw().iter().count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod waveform_drawing_tests {
+    //! The waveform, drawn: a curve over the bottom edge, with a 1px margin
+    //! above and below, and a fainter fill under it.
+    use super::WaveformVisualization;
+    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::ui::components::visualizations::test_support::{
+        HEIGHT, Pixels, bands, flat_bands, render_visualization,
+    };
+
+    fn draw(data: &super_engine_protocol::FrequencyData, side: &VisualizationSide) -> Pixels {
+        render_visualization(
+            &WaveformVisualization::default(),
+            data,
+            side,
+            VisualizationColor::White,
+        )
+    }
+
+    /// Bands 12 to 19 loud, the rest silent: a hump in the middle.
+    fn hump() -> super_engine_protocol::FrequencyData {
+        bands(
+            (0..32)
+                .map(|i| if (12..20).contains(&i) { 3.0 } else { 0.0 })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn silence_draws_a_flat_line_along_the_bottom() {
+        let (left, top, right, _) = draw(&flat_bands(32, 0.0), &VisualizationSide::Full)
+            .painted_box()
+            .expect("a line");
+        assert!(top >= HEIGHT as i32 - 3, "a silent wave reaches row {top}");
+        assert!(left <= 1 && right >= 158, "the line spans {left}..{right}");
+    }
+
+    #[test]
+    fn the_wave_rises_over_the_loud_bands() {
+        let pixels = draw(&hump(), &VisualizationSide::Full);
+        let (middle, _) = pixels.painted_rows(80).expect("the middle column");
+        let (edge, _) = pixels.painted_rows(4).expect("an edge column");
+        assert!(
+            middle + 10 < edge,
+            "the middle rises to {middle}, the edge to {edge}"
+        );
+    }
+
+    /// The curve is the color itself; the area under it, 30% of it.
+    #[test]
+    fn the_fill_under_the_curve_is_fainter_than_the_curve() {
+        let pixels = draw(&hump(), &VisualizationSide::Full);
+        let (top, bottom) = pixels.painted_rows(80).expect("the middle column");
+        assert!(
+            pixels.alpha(80, top + 1) > 180,
+            "the curve's alpha {}",
+            pixels.alpha(80, top + 1)
+        );
+        let fill = pixels.alpha(80, (top + bottom) / 2 + 4);
+        assert!((50..=110).contains(&fill), "the fill's alpha {fill}");
+    }
+
+    /// The left and right applets sit inner edge to inner edge: the left's
+    /// last column has to meet the right's first, or the wave steps at the
+    /// panel's middle.
+    #[test]
+    fn the_halves_meet_at_the_seam() {
+        for data in [flat_bands(32, 1.5), hump()] {
+            let left = draw(&data, &VisualizationSide::Left);
+            let right = draw(&data, &VisualizationSide::Right);
+            let (left_top, _) = left.painted_rows(159).expect("the left's inner edge");
+            let (right_top, _) = right.painted_rows(0).expect("the right's inner edge");
+            assert!(
+                (left_top - right_top).abs() <= 2,
+                "the left ends at row {left_top}, the right starts at {right_top}"
+            );
+        }
     }
 }

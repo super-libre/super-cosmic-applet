@@ -580,3 +580,150 @@ mod visualization_component_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod drawing_tests {
+    //! The component as its canvas draws it: in the style it was given, the
+    //! theme's color, wherever the canvas sits in the applet's window.
+    use super::*;
+    use crate::models::theme::VisualizationColor;
+    use crate::ui::components::visualizations::test_support::{
+        HEIGHT, Pixels, WIDTH, colors, render, render_program, rgb, same_color, theme,
+    };
+    use crate::util::{u32_to_f32, usize_to_f32};
+    use cosmic::iced::Size;
+
+    fn component(
+        style: VisualizationTheme,
+        colors: VisualizationColorConfig,
+    ) -> VisualizationComponent {
+        let mut component =
+            VisualizationComponent::new(0.0, false, style, VisualizationSide::Full, colors);
+        let bands: Vec<f32> = (0..32).map(|i| 0.5 + usize_to_f32(i % 5) * 0.5).collect();
+        component.update_frequency_bands(&bands, 1.0);
+        component
+    }
+
+    /// Draw `component` as its canvas would, with the canvas at `(x, y)` in
+    /// the window.
+    fn draw_at(component: &VisualizationComponent, x: f32, y: f32, dark: bool) -> Pixels {
+        let theme = theme(dark);
+        let bounds = Rectangle {
+            x,
+            y,
+            width: u32_to_f32(WIDTH),
+            height: u32_to_f32(HEIGHT),
+        };
+        render_program(WIDTH, HEIGHT, |renderer| {
+            component.draw(&(), renderer, &theme, bounds, mouse::Cursor::Unavailable)
+        })
+    }
+
+    #[test]
+    fn it_draws_the_style_it_was_given() {
+        let theme = theme(true);
+        let colors = colors(VisualizationColor::White);
+        let strip = Rectangle::with_size(Size::new(u32_to_f32(WIDTH), u32_to_f32(HEIGHT)));
+        let styles: [(VisualizationTheme, &dyn VisualizationRenderer); 4] = [
+            (VisualizationTheme::Pulse, &PulseVisualization::default()),
+            (
+                VisualizationTheme::BottomEqualizer,
+                &EqualizerVisualization::default(),
+            ),
+            (
+                VisualizationTheme::CenteredEqualizer,
+                &CenteredBarsVisualization::default(),
+            ),
+            (
+                VisualizationTheme::Waveform,
+                &WaveformVisualization::default(),
+            ),
+        ];
+        for (style, renderer) in styles {
+            let component = component(style.clone(), colors.clone());
+            let direct = render(WIDTH, HEIGHT, |frame| {
+                renderer.draw(
+                    frame,
+                    &DrawContext {
+                        bounds: strip,
+                        frequency_data: &component.frequency_data,
+                        side: &VisualizationSide::Full,
+                        color_config: &colors,
+                        is_dark: true,
+                        cosmic_theme: theme.cosmic(),
+                    },
+                );
+            });
+            assert_eq!(
+                draw_at(&component, 0.0, 0.0, true).difference(&direct),
+                0,
+                "{style:?} drew something else"
+            );
+        }
+    }
+
+    #[test]
+    fn it_paints_the_color_set_for_the_themes_darkness() {
+        let component = component(
+            VisualizationTheme::CenteredEqualizer,
+            VisualizationColorConfig {
+                light_colors: VisualizationColor::Red,
+                dark_colors: VisualizationColor::Blue,
+            },
+        );
+        let dark = draw_at(&component, 0.0, 0.0, true).paint_color();
+        let light = draw_at(&component, 0.0, 0.0, false).paint_color();
+        assert!(
+            same_color(dark, rgb(VisualizationColor::Blue.to_color())),
+            "{dark:?}"
+        );
+        assert!(
+            same_color(light, rgb(VisualizationColor::Red.to_color())),
+            "{light:?}"
+        );
+    }
+
+    #[test]
+    fn a_cleared_component_draws_like_a_new_one() {
+        let colors = colors(VisualizationColor::White);
+        let mut used = component(VisualizationTheme::BottomEqualizer, colors.clone());
+        used.clear();
+        let fresh = VisualizationComponent::new(
+            0.0,
+            false,
+            VisualizationTheme::BottomEqualizer,
+            VisualizationSide::Full,
+            colors,
+        );
+        assert_eq!(
+            draw_at(&used, 0.0, 0.0, true).difference(&draw_at(&fresh, 0.0, 0.0, true)),
+            0
+        );
+    }
+
+    /// With only a level to go on, the simulated spectrum still draws louder
+    /// for a louder level.
+    #[test]
+    fn a_bare_audio_level_still_draws_its_loudness() {
+        let colors = colors(VisualizationColor::White);
+        let mut component = VisualizationComponent::new(
+            0.0,
+            false,
+            VisualizationTheme::BottomEqualizer,
+            VisualizationSide::Full,
+            colors,
+        );
+        component.update_audio_level(0.1, true);
+        let quiet = draw_at(&component, 0.0, 0.0, true).ink();
+        component.update_audio_level(1.0, true);
+        let loud = draw_at(&component, 0.0, 0.0, true).ink();
+        assert!(loud > quiet, "{loud} vs {quiet}");
+    }
+
+    #[test]
+    fn it_becomes_a_canvas_element() {
+        let element: Element<'_, Message> =
+            component(VisualizationTheme::Pulse, colors(VisualizationColor::White)).into();
+        drop(element);
+    }
+}

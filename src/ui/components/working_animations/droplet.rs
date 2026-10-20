@@ -167,3 +167,117 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod droplet_drawing_tests {
+    //! The droplet, drawn: a line across the middle of the strip that a drop
+    //! ripples every 1.9 s, with a flash where it lands. On a side applet
+    //! the drop lands on the inner edge, so the two halves ripple as one.
+    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::ui::components::visualizations::test_support::{HEIGHT, Pixels, render_working};
+
+    fn draw(elapsed_ms: f32, side: &VisualizationSide) -> Pixels {
+        render_working(
+            WorkingAnimationTheme::Droplet,
+            elapsed_ms,
+            side,
+            VisualizationColor::White,
+        )
+    }
+
+    fn height(pixels: &Pixels) -> i32 {
+        let (_, top, _, bottom) = pixels.painted_box().expect("a line");
+        bottom - top + 1
+    }
+
+    #[test]
+    fn between_drops_the_line_lies_flat_across_the_middle() {
+        let pixels = draw(1850.0, &VisualizationSide::Full);
+        let (left, top, right, bottom) = pixels.painted_box().expect("a line");
+        assert!(left <= 2 && right >= 157, "the line spans {left}..{right}");
+        assert!(top >= 15 && bottom <= 24, "rows {top}..{bottom}");
+        assert!((top + bottom - (HEIGHT as i32 - 1)).abs() <= 1);
+    }
+
+    #[test]
+    fn a_drop_ripples_the_line() {
+        let rest = height(&draw(1850.0, &VisualizationSide::Full));
+        let ripple = height(&draw(400.0, &VisualizationSide::Full));
+        assert!(ripple >= rest + 6, "{ripple} rows rippling, {rest} at rest");
+    }
+
+    /// How far the line has moved off the strip's middle in `columns`, at
+    /// most.
+    fn displacement(pixels: &Pixels, columns: std::ops::Range<i32>) -> i32 {
+        columns
+            .filter_map(|x| pixels.painted_rows(x))
+            .map(|(top, bottom)| (top + bottom - (HEIGHT as i32 - 1)).abs() / 2)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// A quarter second in, the ripple has only reached the line near where
+    /// the drop landed: the strip's centre on a full applet, the seam on a
+    /// side one.
+    #[test]
+    fn the_ripple_spreads_out_from_where_the_drop_lands() {
+        for (side, near, far) in [
+            (VisualizationSide::Full, 70..91, 0..30),
+            (VisualizationSide::Left, 135..160, 0..60),
+            (VisualizationSide::Right, 0..25, 100..160),
+        ] {
+            let pixels = draw(250.0, &side);
+            let (near, far) = (displacement(&pixels, near), displacement(&pixels, far));
+            assert!(
+                near >= 3 && far <= 1,
+                "{side:?}: moved {near}px near the landing, {far}px far from it"
+            );
+        }
+    }
+
+    /// For its first 180ms a drop flashes where it lands.
+    #[test]
+    fn a_drop_flashes_where_it_lands() {
+        let landing = (75..86, 10..30);
+        let flash =
+            draw(20.0, &VisualizationSide::Full).ink_in(landing.0.clone(), landing.1.clone());
+        let none = draw(1850.0, &VisualizationSide::Full).ink_in(landing.0, landing.1);
+        assert!(
+            flash > none * 3 / 2,
+            "{flash} with the flash, {none} without"
+        );
+    }
+
+    #[test]
+    fn a_full_applets_ripple_is_symmetric() {
+        for elapsed_ms in [20.0, 400.0, 1100.0] {
+            let full = draw(elapsed_ms, &VisualizationSide::Full);
+            let off = full.difference(&full.mirrored());
+            assert!(
+                off <= full.painted() / 50,
+                "{off} of {} pixels at {elapsed_ms}ms",
+                full.painted()
+            );
+        }
+    }
+
+    /// Side by side, inner edge to inner edge, the right applet is the left
+    /// one mirrored: one ripple, centred on the seam.
+    #[test]
+    fn the_side_applets_mirror_each_other_across_the_seam() {
+        for elapsed_ms in [20.0, 400.0, 1100.0] {
+            let left = draw(elapsed_ms, &VisualizationSide::Left);
+            let right = draw(elapsed_ms, &VisualizationSide::Right);
+            let off = left.mirrored().difference(&right);
+            assert!(
+                off <= left.painted() / 50,
+                "{off} of {} pixels at {elapsed_ms}ms",
+                left.painted()
+            );
+        }
+        // The flash is at the seam: the left applet's right edge.
+        let left = draw(20.0, &VisualizationSide::Left);
+        let rows = 0..HEIGHT as i32;
+        assert!(left.ink_in(150..160, rows.clone()) > left.ink_in(0..10, rows));
+    }
+}
