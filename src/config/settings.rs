@@ -144,10 +144,6 @@ impl AppletConfig {
         super_engine_protocol::paths::config_dir(Product::Stt.spec()).with_file_name(CLIENT_NAME)
     }
 
-    fn settings_path() -> PathBuf {
-        Self::config_dir().join(SETTINGS_FILE)
-    }
-
     /// Parse `settings.ron`, falling back to defaults on a parse error. Pure
     /// (no I/O) so the load/reset decision is unit-testable. Returns the
     /// config and whether a reset occurred.
@@ -181,10 +177,22 @@ impl AppletConfig {
     /// same file, so they start out agreeing. The TOML files are only read,
     /// never removed.
     pub fn load() -> Self {
-        let path = Self::settings_path();
+        let products = Product::ALL
+            .iter()
+            .map(|p| super_engine_protocol::paths::config_dir(p.spec()))
+            .collect();
+        Self::load_in(&Self::config_dir(), products)
+    }
+
+    /// [`Self::load`] from `dir`, importing from its TOML files or, if it has
+    /// none, from those in `product_dirs`.
+    fn load_in(dir: &Path, product_dirs: Vec<PathBuf>) -> Self {
+        let path = dir.join(SETTINGS_FILE);
         match fs::read_to_string(&path) {
             Ok(content) => Self::parse_or_reset(&content).0,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::import_toml(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Self::import_toml(&[vec![dir.to_path_buf()], product_dirs])
+            }
             Err(e) => {
                 warn!("Failed to read {}: {e}. Using defaults.", path.display());
                 Self::default()
@@ -215,12 +223,8 @@ impl AppletConfig {
             .ok()
     }
 
-    fn import_toml() -> Self {
-        let products = Product::ALL
-            .iter()
-            .map(|p| super_engine_protocol::paths::config_dir(p.spec()))
-            .collect();
-        let Some(path) = newest_toml(&[vec![Self::config_dir()], products]) else {
+    fn import_toml(tiers: &[Vec<PathBuf>]) -> Self {
+        let Some(path) = newest_toml(tiers) else {
             return Self::default();
         };
         info!("Importing the applet's settings from {}", path.display());
@@ -644,5 +648,257 @@ mod newest_toml_tests {
         );
         // The scratch dir exists but holds no config.
         assert!(Path::new(&scratch.0).is_dir());
+    }
+}
+
+#[cfg(test)]
+mod load_and_save_tests {
+    //! The settings on disk, in a scratch directory standing in for
+    //! `~/.config/super-cosmic-applet` and the products' directories.
+    use super::{AppletConfig, SETTINGS_FILE};
+    use crate::models::theme::VisualizationTheme;
+    use crate::products::Product;
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "super-cosmic-applet-load-{name}-{}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("create scratch dir");
+            Self(dir)
+        }
+
+        fn dir(&self, name: &str) -> PathBuf {
+            let dir = self.0.join(name);
+            fs::create_dir_all(&dir).expect("create dir");
+            dir
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// An old per-side config with `theme` and `width`.
+    fn toml_config(theme: &str, width: u32) -> String {
+        format!("[visualization]\ntheme = \"{theme}\"\n\n[ui]\napplet_width = {width}\n")
+    }
+
+    fn with_width(width: u32) -> AppletConfig {
+        let mut config = AppletConfig::default();
+        config.ui.applet_width = width;
+        config
+    }
+
+    #[test]
+    fn saved_settings_load_back() {
+        let scratch = Scratch::new("round-trip");
+        let dir = scratch.dir("applet");
+        with_width(240).save_in(&dir).expect("save");
+
+        assert_eq!(AppletConfig::load_in(&dir, Vec::new()), with_width(240));
+        // The temporary file the save renamed into place is gone.
+        let left: Vec<_> = fs::read_dir(&dir)
+            .expect("read dir")
+            .map(|e| e.expect("entry").file_name())
+            .collect();
+        assert_eq!(left, [SETTINGS_FILE]);
+    }
+
+    #[test]
+    fn the_settings_file_wins_over_any_old_config() {
+        let scratch = Scratch::new("ron-wins");
+        let dir = scratch.dir("applet");
+        with_width(240).save_in(&dir).expect("save");
+        fs::write(dir.join("applet-full.toml"), toml_config("Pulse", 90)).expect("write");
+
+        assert_eq!(AppletConfig::load_in(&dir, Vec::new()).ui.applet_width, 240);
+    }
+
+    /// A settings file that doesn't parse is the user's choice gone bad, not
+    /// a reason to bring back what an old TOML file said.
+    #[test]
+    fn a_corrupt_settings_file_resets_instead_of_importing() {
+        let scratch = Scratch::new("corrupt-ron");
+        let dir = scratch.dir("applet");
+        fs::write(dir.join(SETTINGS_FILE), "not ::: ron (").expect("write");
+        fs::write(dir.join("applet-full.toml"), toml_config("Pulse", 90)).expect("write");
+
+        assert_eq!(
+            AppletConfig::load_in(&dir, Vec::new()),
+            AppletConfig::default()
+        );
+    }
+
+    #[test]
+    fn without_a_settings_file_the_newest_old_config_is_imported() {
+        let scratch = Scratch::new("import-own");
+        let dir = scratch.dir("applet");
+        let products = scratch.dir("stt");
+        fs::write(dir.join("applet-left.toml"), toml_config("Pulse", 90)).expect("write");
+        fs::write(
+            products.join("applet-left.toml"),
+            toml_config("Waveform", 70),
+        )
+        .expect("write");
+
+        let config = AppletConfig::load_in(&dir, vec![products]);
+
+        assert_eq!(config.ui.applet_width, 90);
+        for product in Product::ALL {
+            assert_eq!(
+                config.visualization.product(product).theme,
+                VisualizationTheme::Pulse
+            );
+        }
+        // Importing writes nothing: the first change does.
+        assert!(!dir.join(SETTINGS_FILE).exists());
+    }
+
+    #[test]
+    fn with_nothing_of_its_own_a_products_old_config_is_imported() {
+        let scratch = Scratch::new("import-product");
+        let products = scratch.dir("tts");
+        fs::write(
+            products.join("applet-full.toml"),
+            toml_config("Waveform", 70),
+        )
+        .expect("write");
+
+        let config = AppletConfig::load_in(&scratch.dir("applet"), vec![products]);
+
+        assert_eq!(config.ui.applet_width, 70);
+    }
+
+    #[test]
+    fn a_corrupt_old_config_imports_as_the_defaults() {
+        let scratch = Scratch::new("corrupt-toml");
+        let dir = scratch.dir("applet");
+        fs::write(dir.join("applet-full.toml"), "not ::: toml [").expect("write");
+
+        assert_eq!(
+            AppletConfig::load_in(&dir, Vec::new()),
+            AppletConfig::default()
+        );
+    }
+
+    #[test]
+    fn with_nothing_on_disk_the_defaults_load() {
+        let scratch = Scratch::new("empty");
+        assert_eq!(
+            AppletConfig::load_in(&scratch.dir("applet"), vec![scratch.dir("stt")]),
+            AppletConfig::default()
+        );
+    }
+
+    #[test]
+    fn an_unreadable_settings_file_loads_the_defaults() {
+        let scratch = Scratch::new("unreadable");
+        let dir = scratch.dir("applet");
+        fs::create_dir_all(dir.join(SETTINGS_FILE)).expect("a directory where the file goes");
+        fs::write(dir.join("applet-full.toml"), toml_config("Pulse", 90)).expect("write");
+
+        assert_eq!(
+            AppletConfig::load_in(&dir, Vec::new()),
+            AppletConfig::default()
+        );
+    }
+
+    #[test]
+    fn saving_where_no_directory_can_be_made_fails() {
+        let scratch = Scratch::new("save-fails");
+        let file = scratch.0.join("a-file");
+        fs::write(&file, "").expect("write");
+
+        assert!(with_width(200).save_in(&file.join("applet")).is_err());
+    }
+
+    #[test]
+    fn a_change_is_saved() {
+        let scratch = Scratch::new("update");
+        let dir = scratch.dir("applet");
+        let mut config = AppletConfig::default();
+
+        config.update_in(&dir, |c| c.ui.show_icon = false);
+
+        assert!(!config.ui.show_icon);
+        assert_eq!(AppletConfig::load_in(&dir, Vec::new()), config);
+    }
+
+    /// The applet keeps running on what the user chose even when the disk
+    /// won't take it.
+    #[test]
+    fn a_change_that_cant_be_saved_still_applies() {
+        let scratch = Scratch::new("update-fails");
+        let file = scratch.0.join("a-file");
+        fs::write(&file, "").expect("write");
+        let mut config = AppletConfig::default();
+
+        config.update_in(&file.join("applet"), |c| c.ui.applet_width = 77);
+
+        assert_eq!(config.ui.applet_width, 77);
+    }
+
+    #[test]
+    fn another_applets_save_is_new_and_this_ones_is_not() {
+        let scratch = Scratch::new("read-new");
+        let dir = scratch.dir("applet");
+        let path = dir.join(SETTINGS_FILE);
+
+        assert_eq!(AppletConfig::read_new(&path), None, "no file yet");
+
+        with_width(150).save_in(&dir).expect("save");
+        assert_eq!(
+            AppletConfig::read_new(&path),
+            None,
+            "this applet's own save"
+        );
+
+        let theirs = ron::ser::to_string_pretty(&with_width(260), Default::default()).unwrap();
+        fs::write(&path, theirs).expect("write");
+        assert_eq!(AppletConfig::read_new(&path), Some(with_width(260)));
+
+        fs::write(&path, "(ui: (applet_width: ").expect("write");
+        assert_eq!(AppletConfig::read_new(&path), None, "half a hand edit");
+    }
+
+    #[test]
+    fn each_product_reads_and_writes_its_own_settings() {
+        let mut config = AppletConfig::default();
+        config.visualization.product_mut(Product::Tts).theme = VisualizationTheme::Pulse;
+
+        assert_eq!(
+            config.visualization.product(Product::Tts).theme,
+            VisualizationTheme::Pulse
+        );
+        assert_eq!(config.visualization.tts.theme, VisualizationTheme::Pulse);
+        assert_eq!(
+            config.visualization.stt,
+            AppletConfig::default().visualization.stt
+        );
+        config.visualization.product_mut(Product::Stt).theme = VisualizationTheme::Waveform;
+        assert_eq!(config.visualization.stt.theme, VisualizationTheme::Waveform);
+    }
+
+    /// Beside the products' own directories, under the applet's name.
+    #[test]
+    fn the_settings_live_in_the_applets_own_directory() {
+        let dir = AppletConfig::config_dir();
+        assert_eq!(
+            dir.file_name().and_then(|n| n.to_str()),
+            Some("super-cosmic-applet")
+        );
+        assert_eq!(
+            dir.parent(),
+            super_engine_protocol::paths::config_dir(Product::Stt.spec()).parent()
+        );
     }
 }

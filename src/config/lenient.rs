@@ -126,4 +126,49 @@ mod tests {
         assert_eq!(s.icon_alignment, IconAlignment::default());
         assert_eq!(s.width, 3);
     }
+
+    /// Whatever a hand edit puts where a name goes is read through, so the
+    /// settings after it still load.
+    #[test]
+    fn every_kind_of_wrong_value_takes_the_default() {
+        for wrong in ["true", "1.5", "[1, \"Pulse\"]"] {
+            let s: Settings = toml::from_str(&format!(
+                "theme = {wrong}\nicon_alignment = \"start\"\nwidth = 3"
+            ))
+            .unwrap_or_else(|e| panic!("{wrong} failed the whole file: {e}"));
+            assert_eq!(s.theme, VisualizationTheme::default(), "for {wrong}");
+            assert_eq!(s.icon_alignment, IconAlignment::Start, "after {wrong}");
+        }
+    }
+
+    /// Unsigned numbers and units come from formats other than RON and TOML,
+    /// through any self-describing reader.
+    #[test]
+    fn unsigned_numbers_and_units_take_the_default() {
+        use serde::de::{IntoDeserializer, value::Error};
+
+        let number: Result<VisualizationTheme, Error> =
+            super::variant_or_default(IntoDeserializer::<Error>::into_deserializer(5_u64));
+        let unit: Result<VisualizationTheme, Error> =
+            super::variant_or_default(IntoDeserializer::<Error>::into_deserializer(()));
+
+        assert_eq!(number, Ok(VisualizationTheme::default()));
+        assert_eq!(unit, Ok(VisualizationTheme::default()));
+    }
+
+    /// Bytes are the one value it can't read through; the error the reset
+    /// logs says what was wanted.
+    #[test]
+    fn a_value_it_cant_read_through_says_what_it_wanted() {
+        use serde::de::value::{BytesDeserializer, Error};
+
+        let bytes: Result<VisualizationTheme, Error> =
+            super::variant_or_default(BytesDeserializer::new(b"Pulse"));
+
+        let error = bytes.expect_err("bytes are not a name");
+        assert!(
+            error.to_string().contains("the name of a choice"),
+            "{error}"
+        );
+    }
 }
