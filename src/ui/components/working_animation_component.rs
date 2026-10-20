@@ -28,6 +28,22 @@ pub struct WorkingAnimationComponent {
     elapsed_ms: f32,
 }
 
+/// What the app's tests read back, to check what the panel would draw.
+#[cfg(test)]
+impl WorkingAnimationComponent {
+    pub(crate) fn theme(&self) -> WorkingAnimationTheme {
+        self.theme
+    }
+
+    pub(crate) fn colors(&self) -> &VisualizationColorConfig {
+        &self.colors
+    }
+
+    pub(crate) fn elapsed_ms(&self) -> f32 {
+        self.elapsed_ms
+    }
+}
+
 impl WorkingAnimationComponent {
     pub fn new(
         theme: WorkingAnimationTheme,

@@ -37,6 +37,22 @@ pub struct VisualizationComponent {
     smoothed_visualization_frequency: f32, // Smoothed wave frequency for stable visualization
 }
 
+/// What the app's tests read back, to check what the panel would draw.
+#[cfg(test)]
+impl VisualizationComponent {
+    pub(crate) fn theme(&self) -> &VisualizationTheme {
+        &self.visualization_theme
+    }
+
+    pub(crate) fn colors(&self) -> &VisualizationColorConfig {
+        &self.visualization_colors
+    }
+
+    pub(crate) fn bands(&self) -> &[f32] {
+        &self.frequency_data.bands
+    }
+}
+
 impl VisualizationComponent {
     pub fn new(
         audio_level: f32,

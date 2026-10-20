@@ -299,4 +299,79 @@ mod tests {
         assert_eq!(pick_front(&[Stt, Tts], false), Some(Stt));
         assert_eq!(pick_front(&[Stt, Tts], true), Some(Tts));
     }
+
+    mod subscriptions {
+        //! What the applet listens to in each state. iced runs one stream
+        //! per recipe and restarts one whose identity changes.
+        use std::hash::Hasher as _;
+
+        use cosmic::iced::advanced::subscription::{Hasher, into_recipes};
+
+        use crate::app::DaemonMessage;
+        use crate::app::testing::TestApplet;
+        use crate::products::Product::{Stt, Tts};
+
+        fn identities(applet: &TestApplet) -> Vec<u64> {
+            into_recipes(cosmic::Application::subscription(&applet.applet))
+                .iter()
+                .map(|recipe| {
+                    let mut hasher = Hasher::default();
+                    recipe.hash(&mut hasher);
+                    hasher.finish()
+                })
+                .collect()
+        }
+
+        fn count(applet: &TestApplet) -> usize {
+            identities(applet).len()
+        }
+
+        #[test]
+        fn each_installed_product_gets_its_events_beside_the_ping_and_the_settings_watch() {
+            assert_eq!(count(&TestApplet::new(&[])), 2);
+            assert_eq!(count(&TestApplet::new(&[Tts])), 3);
+            assert_eq!(count(&TestApplet::new(&[Stt, Tts])), 4);
+        }
+
+        #[test]
+        fn the_turns_timer_runs_only_while_both_are_active() {
+            let mut applet = TestApplet::new(&[Stt, Tts]);
+            applet
+                .connect(Stt)
+                .connect(Tts)
+                .daemon(Stt, DaemonMessage::RecordingState(true));
+            assert_eq!(count(&applet), 4);
+
+            applet
+                .daemon(Tts, DaemonMessage::SpeakingState(true))
+                .daemon(Tts, DaemonMessage::SpeechProgress { spoken_ms: 40 });
+            assert_eq!(count(&applet), 5);
+        }
+
+        #[test]
+        fn the_animation_tick_runs_only_while_the_product_in_front_works() {
+            let mut applet = TestApplet::new(&[Tts]);
+            applet
+                .connect(Tts)
+                .daemon(Tts, DaemonMessage::SpeakingState(true));
+            assert_eq!(count(&applet), 4, "synthesizing");
+
+            applet.daemon(Tts, DaemonMessage::SpeechProgress { spoken_ms: 40 });
+            assert_eq!(count(&applet), 3, "speaking");
+        }
+
+        /// The Retry button's forced re-authorization bumps the product's
+        /// counter, which has to restart its events, and only its events.
+        #[test]
+        fn a_restart_gives_only_that_products_events_a_new_identity() {
+            let mut applet = TestApplet::new(&[Stt, Tts]);
+            let before = identities(&applet);
+
+            applet.applet.link_mut(Tts).restart_counter += 1;
+            let after = identities(&applet);
+
+            let changed = before.iter().filter(|id| !after.contains(id)).count();
+            assert_eq!(changed, 1);
+        }
+    }
 }

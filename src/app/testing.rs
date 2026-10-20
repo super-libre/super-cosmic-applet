@@ -47,7 +47,7 @@ impl TestApplet {
 
     /// Send `message`, as iced would.
     pub(crate) fn send(&mut self, message: Message) -> &mut Self {
-        let _ = self.applet.handle_message(message);
+        let _ = cosmic::Application::update(&mut self.applet, message);
         self
     }
 
