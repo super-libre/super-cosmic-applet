@@ -163,3 +163,150 @@ fn transparent_icon_button<'a>(
         .class(Button::AppletIcon)
         .on_press_down(Message::TogglePopup)
 }
+
+#[cfg(test)]
+mod panel_tests {
+    //! What the panel shows for each state of the products, told apart by how
+    //! it draws: the icon, a product's audio, its working animation, or the
+    //! error icon.
+    use crate::app::testing::TestApplet;
+    use crate::app::{DaemonMessage, Message};
+    use crate::products::Product::{Stt, Tts};
+    use crate::ui::simulator::{Simulator, draws_anything, every_click};
+    use cosmic::iced::Size;
+
+    /// Room for the panel's box, whatever the default panel makes it.
+    const PANEL: Size = Size::new(400.0, 120.0);
+
+    fn screenshot(applet: &TestApplet) -> Vec<u8> {
+        Simulator::with_size(applet.panel(), PANEL).screenshot()
+    }
+
+    fn connected() -> TestApplet {
+        let mut applet = TestApplet::new(&[Stt, Tts]);
+        applet.connect(Stt).connect(Tts);
+        applet
+    }
+
+    fn loud() -> DaemonMessage {
+        DaemonMessage::FrequencyBands {
+            bands: vec![0.8; 64],
+            total_energy: 0.8,
+        }
+    }
+
+    fn recording(applet: &mut TestApplet) {
+        applet
+            .daemon(Stt, DaemonMessage::RecordingState(true))
+            .daemon(Stt, loud());
+    }
+
+    fn transcribing(applet: &mut TestApplet) {
+        applet
+            .daemon(Stt, DaemonMessage::RecordingState(true))
+            .daemon(Stt, DaemonMessage::RecordingState(false))
+            .send(Message::WorkingAnimationTick);
+    }
+
+    #[test]
+    fn idle_it_shows_the_icon_and_a_click_opens_the_popup() {
+        let applet = connected();
+        assert!(draws_anything(&screenshot(&applet)));
+        assert_eq!(every_click(|| applet.panel()), ["TogglePopup"]);
+    }
+
+    #[test]
+    fn with_the_icon_hidden_idle_draws_nothing() {
+        let mut applet = connected();
+        applet.send(Message::SetShowIcon(false));
+        assert!(!draws_anything(&screenshot(&applet)));
+        assert_eq!(
+            every_click(|| applet.panel()),
+            ["TogglePopup"],
+            "an invisible applet still opens its popup"
+        );
+    }
+
+    /// The error icon shows through a hidden icon: a refused or dropped
+    /// session needs the user, so it can't stay invisible.
+    #[test]
+    fn a_daemon_that_needs_attention_shows_the_error_icon() {
+        for trouble in [
+            DaemonMessage::Blocked("user denied".into()),
+            DaemonMessage::Revoked("exe_changed".into()),
+        ] {
+            let mut applet = connected();
+            let icon = screenshot(&applet);
+            applet.daemon(Tts, trouble.clone());
+            let error = screenshot(&applet);
+            assert!(draws_anything(&error), "{trouble:?} drew nothing");
+            assert_ne!(error, icon, "{trouble:?} drew the normal icon");
+
+            applet.send(Message::SetShowIcon(false));
+            assert_eq!(screenshot(&applet), error, "{trouble:?} hid with the icon");
+        }
+    }
+
+    #[test]
+    fn recording_draws_the_microphone_and_a_click_opens_the_popup() {
+        let mut applet = connected();
+        let icon = screenshot(&applet);
+
+        recording(&mut applet);
+
+        let drawn = screenshot(&applet);
+        assert!(draws_anything(&drawn));
+        assert_ne!(drawn, icon, "recording still drew the icon");
+        assert_eq!(every_click(|| applet.panel()), ["TogglePopup"]);
+    }
+
+    #[test]
+    fn speaking_draws_the_speech() {
+        let mut applet = connected();
+        let icon = screenshot(&applet);
+
+        applet
+            .daemon(Tts, DaemonMessage::SpeakingState(true))
+            .daemon(Tts, DaemonMessage::SpeechProgress { spoken_ms: 40 })
+            .daemon(Tts, loud());
+
+        let drawn = screenshot(&applet);
+        assert!(draws_anything(&drawn));
+        assert_ne!(drawn, icon, "speaking still drew the icon");
+    }
+
+    #[test]
+    fn transcribing_draws_the_working_animation_and_a_click_opens_the_popup() {
+        let mut applet = connected();
+        let icon = screenshot(&applet);
+
+        transcribing(&mut applet);
+
+        let drawn = screenshot(&applet);
+        assert!(draws_anything(&drawn));
+        assert_ne!(drawn, icon, "transcribing still drew the icon");
+        assert_eq!(every_click(|| applet.panel()), ["TogglePopup"]);
+    }
+
+    #[test]
+    fn with_visualizations_off_activity_keeps_the_icon() {
+        let mut applet = connected();
+        applet.send(Message::SetShowVisualizations(false));
+        let icon = screenshot(&applet);
+
+        recording(&mut applet);
+        assert_eq!(screenshot(&applet), icon, "recording drew its audio");
+
+        applet.daemon(Stt, DaemonMessage::RecordingState(false));
+        assert_eq!(screenshot(&applet), icon, "transcribing drew its animation");
+    }
+
+    /// A product that is installed but not connected says nothing, by
+    /// itself, about whether the user needs to act.
+    #[test]
+    fn a_daemon_still_connecting_shows_the_icon_not_the_error() {
+        let mut connecting = TestApplet::new(&[Stt, Tts]);
+        connecting.connect(Stt);
+        assert_eq!(screenshot(&connecting), screenshot(&connected()));
+    }
+}

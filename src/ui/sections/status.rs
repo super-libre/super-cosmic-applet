@@ -65,3 +65,94 @@ fn product_status(link: &ProductLink) -> Option<Element<'static, Message>> {
         .into(),
     })
 }
+
+#[cfg(test)]
+mod status_tests {
+    use super::create_status_section;
+    use crate::app::{DaemonMessage, Message, ProductLink};
+    use crate::models::state::DaemonConnectionState::{
+        self, Blocked, Connected, Connecting, Error,
+    };
+    use crate::products::Product::{self, Stt, Tts};
+    use crate::ui::simulator::Simulator;
+
+    fn link(product: Product, installed: bool, state: DaemonConnectionState) -> ProductLink {
+        let mut link = ProductLink::new(product, installed);
+        link.daemon_state = state;
+        link
+    }
+
+    /// What the section shows for `links`, or `None` without a section.
+    fn shown(links: &[ProductLink]) -> Option<Vec<String>> {
+        create_status_section(links).map(|section| Simulator::new(section).texts())
+    }
+
+    #[test]
+    fn with_every_installed_product_connected_there_is_no_section() {
+        assert!(shown(&[link(Stt, true, Connected), link(Tts, true, Connected)]).is_none());
+        assert!(shown(&[link(Stt, true, Connected), link(Tts, false, Connecting)]).is_none());
+    }
+
+    #[test]
+    fn only_a_product_that_isnt_connected_gets_a_line() {
+        let texts = shown(&[link(Stt, true, Connected), link(Tts, true, Connecting)])
+            .expect("Super TTS isn't connected");
+        assert_eq!(
+            texts,
+            ["Super TTS: connecting", "The daemon may still be starting."]
+        );
+    }
+
+    #[test]
+    fn an_error_says_what_went_wrong() {
+        let texts = shown(&[link(Stt, true, Error("revoked: exe_changed".into()))])
+            .expect("Super STT failed");
+        assert_eq!(texts[0], "Super STT: revoked: exe_changed");
+    }
+
+    #[test]
+    fn a_product_that_isnt_installed_gets_no_line() {
+        let texts = shown(&[link(Stt, true, Connecting), link(Tts, false, Connecting)])
+            .expect("Super STT is connecting");
+        assert!(texts.iter().all(|t| !t.contains("Super TTS")), "{texts:?}");
+    }
+
+    #[test]
+    fn with_nothing_installed_it_says_so() {
+        let texts = shown(&[link(Stt, false, Connecting), link(Tts, false, Connecting)])
+            .expect("a note that nothing is installed");
+        assert_eq!(
+            texts,
+            [
+                "Neither Super STT nor Super TTS is installed.",
+                "Install either one to use this applet."
+            ]
+        );
+    }
+
+    /// A denial only clears once the daemon restarts, so the line says how,
+    /// and its button asks again for the product that was denied.
+    #[test]
+    fn a_denial_says_how_to_clear_it_and_retries_that_product() {
+        let links = [
+            link(Stt, true, Connected),
+            link(Tts, true, Blocked("user denied".into())),
+        ];
+        let mut ui = Simulator::new(create_status_section(&links).expect("Super TTS is denied"));
+        for line in [
+            "Super TTS: authorization denied",
+            "Reason: user denied",
+            "Restart the daemon to clear the denial:",
+            "  systemctl --user restart super-tts",
+        ] {
+            assert!(ui.shows(line), "{line:?} missing from {:?}", ui.texts());
+        }
+
+        ui.click("Retry authorization");
+
+        assert!(matches!(
+            ui.into_messages().as_slice(),
+            [Message::Daemon(Tts, DaemonMessage::RetryAuthorization)]
+        ));
+    }
+}

@@ -157,3 +157,129 @@ fn create_product_settings<'a>(
         ))
         .apply(Element::from)
 }
+
+#[cfg(test)]
+mod settings_section_tests {
+    //! The settings part of the popup, on a real applet: what shows when, and
+    //! that each control's click reaches the saved settings.
+    use crate::app::testing::TestApplet;
+    use crate::models::theme::IconAlignment;
+    use crate::products::Product::{Stt, Tts};
+    use crate::ui::simulator::{in_popup, popup_texts};
+    use cosmic::iced::Point;
+
+    /// An applet with both products installed and connected.
+    fn connected() -> TestApplet {
+        let mut applet = TestApplet::new(&[Stt, Tts]);
+        applet.connect(Stt).connect(Tts);
+        applet
+    }
+
+    fn shows(applet: &TestApplet, text: &str) -> bool {
+        popup_texts(applet).iter().any(|t| t == text)
+    }
+
+    #[test]
+    fn the_settings_wait_for_a_connected_daemon() {
+        let mut applet = TestApplet::new(&[Stt, Tts]);
+        assert!(!shows(&applet, "Show Icon"));
+
+        applet.connect(Tts);
+
+        assert!(shows(&applet, "Show Icon"));
+    }
+
+    #[test]
+    fn the_product_tabs_show_only_with_both_installed() {
+        let mut one = TestApplet::new(&[Stt]);
+        one.connect(Stt);
+        let texts = popup_texts(&one);
+        assert!(!texts.iter().any(|t| t == "Super STT"), "{texts:?}");
+        assert!(
+            texts.iter().any(|t| t == "Visualization Style"),
+            "{texts:?}"
+        );
+
+        let texts = popup_texts(&connected());
+        assert!(texts.iter().any(|t| t == "Super STT"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Super TTS"), "{texts:?}");
+    }
+
+    #[test]
+    fn the_shared_settings_come_before_the_tabs() {
+        let texts = popup_texts(&connected());
+        let at = |label: &str| texts.iter().position(|t| t == label).unwrap();
+        assert!(at("Show Icon") < at("Icon Position"));
+        assert!(at("Icon Position") < at("Show Visualization"));
+        assert!(at("Visualization Size") < at("Super STT"));
+        assert!(at("Super TTS") < at("Visualization Style"));
+    }
+
+    #[test]
+    fn turning_the_icon_off_saves_it_and_hides_its_position() {
+        let mut applet = connected();
+
+        let sent = in_popup(&mut applet, |ui| {
+            ui.click_toggler_of("Show Icon");
+        });
+
+        assert_eq!(sent, ["SetShowIcon(false)"]);
+        assert!(!applet.config().ui.show_icon);
+        assert!(!applet.saved().expect("saved").ui.show_icon);
+        assert!(!shows(&applet, "Icon Position"));
+    }
+
+    #[test]
+    fn turning_the_visualization_off_hides_its_settings_and_the_tabs() {
+        let mut applet = connected();
+
+        let sent = in_popup(&mut applet, |ui| {
+            ui.click_toggler_of("Show Visualization");
+        });
+
+        assert_eq!(sent, ["SetShowVisualizations(false)"]);
+        let texts = popup_texts(&applet);
+        for hidden in ["Visualization Size", "Super STT", "Visualization Style"] {
+            assert!(
+                !texts.iter().any(|t| t == hidden),
+                "{hidden:?} in {texts:?}"
+            );
+        }
+        assert!(texts.iter().any(|t| t == "Show Icon"));
+    }
+
+    #[test]
+    fn the_icon_position_control_sets_where_the_icon_sits() {
+        let mut applet = connected();
+        for (fraction, alignment) in [
+            (1.0 / 6.0, IconAlignment::Start),
+            (0.5, IconAlignment::Center),
+            (5.0 / 6.0, IconAlignment::End),
+        ] {
+            in_popup(&mut applet, |ui| {
+                let control = ui.control_below("Icon Position");
+                ui.click_at(Point::new(
+                    control.x + control.width * fraction,
+                    control.center_y(),
+                ));
+            });
+            assert_eq!(applet.config().ui.icon_alignment, alignment);
+            assert_eq!(applet.saved().expect("saved").ui.icon_alignment, alignment);
+        }
+    }
+
+    #[test]
+    fn the_size_slider_sets_the_visualization_size() {
+        let mut applet = connected();
+
+        in_popup(&mut applet, |ui| {
+            let slider = ui.control_below("Visualization Size");
+            ui.click_at(Point::new(slider.x + slider.width - 1.0, slider.center_y()));
+        });
+
+        let width = applet.config().ui.applet_width;
+        assert!(width > 250, "the far end of the slider set {width}px");
+        assert_eq!(applet.saved().expect("saved").ui.applet_width, width);
+        assert!(shows(&applet, &format!("{width}px")));
+    }
+}

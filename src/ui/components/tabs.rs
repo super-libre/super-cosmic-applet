@@ -101,3 +101,45 @@ fn tab_inner_class(active: bool) -> theme::Button {
         pressed: Box::new(|_focused, theme| shape(theme, theme.cosmic().button.pressed.into())),
     }
 }
+
+#[cfg(test)]
+mod tabs_tests {
+    use super::product_tabs;
+    use crate::app::Message;
+    use crate::products::Product::{Stt, Tts};
+    use crate::ui::simulator::Simulator;
+
+    #[test]
+    fn each_product_gets_a_tab_in_the_order_given() {
+        assert_eq!(
+            Simulator::new(product_tabs(&[Stt, Tts], Stt)).texts(),
+            ["Super STT", "Super TTS"]
+        );
+        assert_eq!(
+            Simulator::new(product_tabs(&[Tts, Stt], Stt)).texts(),
+            ["Super TTS", "Super STT"]
+        );
+    }
+
+    #[test]
+    fn a_tab_picks_its_product() {
+        for (label, active) in [("Super TTS", Stt), ("Super STT", Tts), ("Super STT", Stt)] {
+            let mut ui = Simulator::new(product_tabs(&[Stt, Tts], active));
+            ui.click(label);
+            let picked = match ui.into_messages().as_slice() {
+                [Message::SelectSettingsTab(product)] => *product,
+                other => panic!("clicking {label:?} sent {other:?}"),
+            };
+            assert_eq!(picked.display_name(), label);
+        }
+    }
+
+    /// The active tab is told apart by its accent rim and text, so the bar
+    /// has to draw differently for each.
+    #[test]
+    fn the_active_tab_is_drawn_apart() {
+        let stt = Simulator::new(product_tabs(&[Stt, Tts], Stt)).screenshot();
+        let tts = Simulator::new(product_tabs(&[Stt, Tts], Tts)).screenshot();
+        assert_ne!(stt, tts);
+    }
+}

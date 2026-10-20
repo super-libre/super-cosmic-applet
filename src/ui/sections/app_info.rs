@@ -50,3 +50,23 @@ pub fn create_app_info_section() -> Element<'static, Message> {
     .width(Length::Fill)
     .into()
 }
+
+#[cfg(test)]
+mod app_info_tests {
+    use super::create_app_info_section;
+    use crate::ui::simulator::{Simulator, every_click};
+
+    #[test]
+    fn the_header_names_the_applet_and_its_version() {
+        let mut ui = Simulator::new(create_app_info_section());
+        assert_eq!(
+            ui.texts(),
+            ["Super Applet".to_string(), format!("v{}", crate::VERSION)]
+        );
+    }
+
+    #[test]
+    fn its_only_button_opens_the_repository() {
+        assert_eq!(every_click(create_app_info_section), ["OpenGitHub"]);
+    }
+}
