@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use std::path::PathBuf;
+
 use cosmic::{
     app as cosmic_app,
     widget::segmented_button::{Entity, SingleSelectModel},
@@ -71,8 +73,25 @@ impl SuperApplet {
         visualization_side: VisualizationSide,
     ) -> (Self, cosmic_app::Task<Message>) {
         // Shared by every side: only what this one draws is its own.
-        let config = AppletConfig::load();
+        Self::with_settings(
+            core,
+            visualization_side,
+            AppletConfig::load(),
+            AppletConfig::config_dir(),
+            Product::is_installed,
+        )
+    }
 
+    /// [`Self::new`], given the settings, the directory they save to, and how
+    /// to tell whether a product is installed, so a test can run an applet
+    /// without touching the user's.
+    pub(super) fn with_settings(
+        core: cosmic::app::Core,
+        visualization_side: VisualizationSide,
+        config: AppletConfig,
+        settings_dir: PathBuf,
+        is_installed: fn(Product) -> bool,
+    ) -> (Self, cosmic_app::Task<Message>) {
         // Nothing is in front yet: the first product to become active swaps
         // its own look in (`sync_shown`).
         let look = config.visualization.product(Product::Stt);
@@ -99,7 +118,7 @@ impl SuperApplet {
 
         let applet = Self {
             core,
-            links: Product::ALL.map(ProductLink::new),
+            links: Product::ALL.map(|p| ProductLink::new(p, is_installed(p))),
             popup: None,
             audio_level: 0.0,
             is_speech_detected: false,
@@ -118,6 +137,8 @@ impl SuperApplet {
             theme_selector_dark,
             selected_theme_for_config: is_dark,
             picked_settings_tab: Product::Stt,
+            settings_dir,
+            is_installed,
         };
 
         for link in &applet.links {

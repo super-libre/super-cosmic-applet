@@ -3,9 +3,12 @@ mod init;
 mod layout;
 pub mod messages;
 mod subscription;
+#[cfg(test)]
+pub(crate) mod testing;
 mod update;
 mod view;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use cosmic::{
@@ -23,7 +26,7 @@ use crate::models::theme::VisualizationSide;
 use crate::products::Product;
 use crate::ui::components::sound_visualization::VisualizationComponent;
 use crate::ui::components::working_animation_component::WorkingAnimationComponent;
-use subscription::{EventsSubscriptionId, PING_INTERVAL_SECS, events_subscription, settings_watch};
+use subscription::{EventsSubscriptionId, PING_INTERVAL_SECS, events_subscription, watch_settings};
 
 /// How long the panel shows one product's visualization before the other's,
 /// when both are active at once.
@@ -47,10 +50,10 @@ pub struct ProductLink {
 }
 
 impl ProductLink {
-    fn new(product: Product) -> Self {
+    pub(crate) fn new(product: Product, installed: bool) -> Self {
         Self {
             product,
-            installed: product.is_installed(),
+            installed,
             daemon_state: DaemonConnectionState::Connecting,
             retry_strategy: RetryStrategy::for_initial_connection(),
             restart_counter: 0,
@@ -118,6 +121,12 @@ pub struct SuperApplet {
     /// The settings tab last picked. The popup falls back to another
     /// installed product's while this one isn't installed.
     picked_settings_tab: Product,
+    /// Where the settings are saved, and watched for the other applets'
+    /// changes.
+    settings_dir: PathBuf,
+    /// Whether a product is installed: [`Product::is_installed`], but for a
+    /// test.
+    is_installed: fn(Product) -> bool,
 }
 
 impl SuperApplet {
@@ -200,7 +209,10 @@ impl cosmic::Application for SuperApplet {
             cosmic::iced::time::every(Duration::from_secs(PING_INTERVAL_SECS))
                 .map(|_| Message::PingTimeout),
         );
-        subs.push(Subscription::run(settings_watch));
+        subs.push(Subscription::run_with(
+            self.settings_dir.clone(),
+            watch_settings,
+        ));
         if self.active_products().len() > 1 {
             subs.push(
                 cosmic::iced::time::every(Duration::from_secs(ALTERNATE_SECS))
@@ -240,6 +252,16 @@ impl cosmic::Application for SuperApplet {
 mod tests {
     use super::{pick_front, pick_settings_tab};
     use crate::products::Product::{Stt, Tts};
+
+    #[test]
+    fn a_test_applet_builds_and_draws_headless() {
+        use super::testing::TestApplet;
+        let applet = TestApplet::new(&[Stt, Tts]);
+        let _ = applet.popup();
+        let _ = applet.panel();
+        assert!(applet.link(Stt).installed && applet.link(Tts).installed);
+        assert_eq!(applet.saved(), None, "nothing changed, so nothing saved");
+    }
 
     #[test]
     fn the_picked_settings_tab_stays_while_its_product_is_installed() {

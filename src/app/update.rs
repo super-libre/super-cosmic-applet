@@ -246,9 +246,10 @@ impl SuperApplet {
     /// or removed since the last ping.
     fn ping_timeout(&mut self) -> cosmic_app::Task<Message> {
         let mut tasks = Vec::new();
+        let is_installed = self.is_installed;
         for link in &mut self.links {
             let product = link.product;
-            let installed = product.is_installed();
+            let installed = is_installed(product);
             if installed != link.installed {
                 info!(
                     "{} was {}",
@@ -413,8 +414,9 @@ impl SuperApplet {
         product: Product,
         theme: VisualizationTheme,
     ) -> cosmic_app::Task<Message> {
-        self.config
-            .update(|c| c.visualization.product_mut(product).theme = theme);
+        self.config.update_in(&self.settings_dir, |c| {
+            c.visualization.product_mut(product).theme = theme;
+        });
         if self.shown == Some(product) {
             self.apply_look();
             self.visualization
@@ -429,8 +431,9 @@ impl SuperApplet {
         product: Product,
         theme: WorkingAnimationTheme,
     ) -> cosmic_app::Task<Message> {
-        self.config
-            .update(|c| c.visualization.product_mut(product).working_animation = theme);
+        self.config.update_in(&self.settings_dir, |c| {
+            c.visualization.product_mut(product).working_animation = theme;
+        });
         if self.shown == Some(product) {
             self.apply_look();
         }
@@ -481,7 +484,8 @@ impl SuperApplet {
     }
 
     fn set_applet_width(&mut self, width: u32) -> cosmic_app::Task<Message> {
-        self.config.update(|c| c.ui.applet_width = width);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.applet_width = width);
         self.resize_visualization();
         cosmic_app::Task::none()
     }
@@ -494,7 +498,8 @@ impl SuperApplet {
     }
 
     fn set_show_icon(&mut self, show_icon: bool) -> cosmic_app::Task<Message> {
-        self.config.update(|c| c.ui.show_icon = show_icon);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.show_icon = show_icon);
         cosmic_app::Task::none()
     }
 
@@ -518,12 +523,14 @@ impl SuperApplet {
         } else {
             IconAlignment::Start
         };
-        self.config.update(|c| c.ui.icon_alignment = alignment);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.icon_alignment = alignment);
         cosmic_app::Task::none()
     }
 
     fn set_show_visualizations(&mut self, show: bool) -> cosmic_app::Task<Message> {
-        self.config.update(|c| c.ui.show_visualization = show);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.show_visualization = show);
         cosmic_app::Task::none()
     }
 
@@ -533,7 +540,7 @@ impl SuperApplet {
         color: VisualizationColor,
         is_dark: bool,
     ) -> cosmic_app::Task<Message> {
-        self.config.update(|c| {
+        self.config.update_in(&self.settings_dir, |c| {
             c.visualization
                 .product_mut(product)
                 .colors

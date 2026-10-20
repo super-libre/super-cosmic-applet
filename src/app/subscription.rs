@@ -62,7 +62,7 @@ pub(super) fn events_subscription(
     ))
 }
 
-/// Watches the settings file and reports what another applet, or a hand
+/// Watches the settings file in `dir` and reports what another applet, or a hand
 /// edit, saved to it. Each side of each panel is its own process, so this is
 /// how a change made in one popup reaches the others.
 ///
@@ -70,12 +70,10 @@ pub(super) fn events_subscription(
 /// over the old one, which would end a watch on the file itself. Without a
 /// watch the applet still works, only unsynced, so a failure to set one up
 /// is logged and the subscription ends.
-pub(super) fn settings_watch() -> Pin<Box<dyn Stream<Item = Message> + Send>> {
-    watch_settings(AppletConfig::config_dir())
-}
-
-/// [`settings_watch`], on the settings file in `dir`.
-fn watch_settings(dir: PathBuf) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
+// `Subscription::run_with` hands the directory over as the `&PathBuf` it holds.
+#[allow(clippy::ptr_arg)]
+pub(super) fn watch_settings(dir: &PathBuf) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
+    let dir = dir.clone();
     Box::pin(cosmic::iced::stream::channel(
         8,
         async move |mut channel| {
@@ -430,7 +428,7 @@ mod settings_watch_tests {
             let dir = std::env::temp_dir()
                 .join(format!("super-cosmic-applet-watch-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
-            let mut watch = watch_settings(dir.clone());
+            let mut watch = watch_settings(&dir);
             let mut theirs = AppletConfig::default();
             theirs.ui.applet_width = 222;
 

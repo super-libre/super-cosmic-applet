@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The applet's settings: one file, `settings.ron`, for every side of every
 //! panel the applet runs on. Each side is its own process, and each watches
-//! the file (`app::subscription::settings_watch`), so a change made in one
+//! the file (`app::subscription::watch_settings`), so a change made in one
 //! popup shows in all of them.
 use super::lenient::variant_or_default;
 use crate::models::theme::{
@@ -10,6 +10,7 @@ use crate::models::theme::{
 use crate::products::{CLIENT_NAME, Product};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -17,10 +18,11 @@ use std::sync::{Mutex, PoisonError};
 /// The settings file's name, in [`AppletConfig::config_dir`].
 pub const SETTINGS_FILE: &str = "settings.ron";
 
-/// What this process last saved. Held while it saves, and while its watch
-/// reads the file, so the watch can tell this applet's own saves from the
-/// others' (see [`AppletConfig::read_new`]).
-static OWN_SAVE: Mutex<Option<String>> = Mutex::new(None);
+/// What this process last saved, by file: there is one, but a test saves its
+/// own. Held while it saves, and while its watch reads the file, so the watch
+/// can tell this applet's own saves from the others' (see
+/// [`AppletConfig::read_new`]).
+static OWN_SAVES: Mutex<BTreeMap<PathBuf, String>> = Mutex::new(BTreeMap::new());
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -202,9 +204,9 @@ impl AppletConfig {
     /// through a hand edit, so the running applet keeps what it has instead
     /// of resetting.
     pub fn read_new(path: &Path) -> Option<Self> {
-        let own = OWN_SAVE.lock().unwrap_or_else(PoisonError::into_inner);
+        let own = OWN_SAVES.lock().unwrap_or_else(PoisonError::into_inner);
         let content = fs::read_to_string(path).ok()?;
-        if own.as_deref() == Some(content.as_str()) {
+        if own.get(path) == Some(&content) {
             return None;
         }
         drop(own);
@@ -228,10 +230,6 @@ impl AppletConfig {
             .unwrap_or_default()
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.save_in(&Self::config_dir())
-    }
-
     /// Save the settings to `dir`, by writing them beside the file and
     /// renaming them over it, so an applet watching the file never reads half
     /// of it.
@@ -242,20 +240,21 @@ impl AppletConfig {
         // rename a whole file into place.
         let temporary = dir.join(format!(".{SETTINGS_FILE}.{}", std::process::id()));
         let path = dir.join(SETTINGS_FILE);
-        let mut own = OWN_SAVE.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut own = OWN_SAVES.lock().unwrap_or_else(PoisonError::into_inner);
         fs::write(&temporary, &content)?;
         fs::rename(&temporary, &path)?;
-        *own = Some(content);
+        own.insert(path.clone(), content);
         debug!("Saved the applet's settings to {}", path.display());
         Ok(())
     }
 
-    /// Apply an in-place mutation and persist it. Replaces the fan-out of
-    /// `update_*` setters (Applet Tier 3 #21): `config.update(|c| c.ui.show_icon
-    /// = v)` mutates then saves, logging (not propagating) a write failure.
-    pub fn update(&mut self, mutate: impl FnOnce(&mut Self)) {
+    /// Apply an in-place mutation and save it to `dir`. Replaces the fan-out
+    /// of `update_*` setters (Applet Tier 3 #21): `config.update_in(dir, |c|
+    /// c.ui.show_icon = v)` mutates then saves, logging (not propagating) a
+    /// write failure.
+    pub fn update_in(&mut self, dir: &Path, mutate: impl FnOnce(&mut Self)) {
         mutate(self);
-        if let Err(e) = self.save() {
+        if let Err(e) = self.save_in(dir) {
             error!("Failed to save config: {e}");
         }
     }
