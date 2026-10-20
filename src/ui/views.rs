@@ -60,7 +60,11 @@ pub fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, 
     }
     content
         .push(divider())
-        .push(create_launch_section(params.links))
+        .push(
+            padded_control(create_launch_section(params.links))
+                .padding(menu_control_padding())
+                .apply(Element::from),
+        )
         .padding([8, 0])
         .into()
 }
