@@ -1,6 +1,6 @@
 [package]
     name = "super-cosmic-applet"
-    version = "0.1.0-beta.1"
+    version = "0.1.0-beta.2"
     authors = ["Jorge Menjivar <jorge@menjivar.ai>"]
     edition = "2024"
     description = "COSMIC panel applet for Super STT and Super TTS"
