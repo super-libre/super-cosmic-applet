@@ -73,8 +73,6 @@
         rev = "1e3dc374915d403ba143325ccbab68631e40499d",
     }
     tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
-    # Only to import the per-side TOML configs from before settings.ron.
-    toml = "1.0.6"
 
 [lints.clippy]
     pedantic = { level = "warn", priority = -1 }

@@ -389,7 +389,7 @@ mod settings_watch_tests {
             created,
             &format!(".{SETTINGS_FILE}.4242")
         )));
-        assert!(!saves_settings(&event(created, "applet-full.toml")));
+        assert!(!saves_settings(&event(created, "notes.txt")));
     }
 
     /// The watch end to end, on a real directory: what another applet saves
