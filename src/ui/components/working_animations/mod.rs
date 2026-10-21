@@ -78,3 +78,87 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod render_tests {
+    //! What every working animation promises, drawn for real: it paints the
+    //! color the user picked, stays inside the strip, moves with time, and
+    //! draws the same frame for the same moment.
+    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::ui::components::visualizations::test_support::{
+        HEIGHT, MARGIN, WIDTH, render_working, rgb, same_color,
+    };
+
+    const ALL: [WorkingAnimationTheme; 3] = [
+        WorkingAnimationTheme::Droplet,
+        WorkingAnimationTheme::Comet,
+        WorkingAnimationTheme::Dots,
+    ];
+
+    const SIDES: [VisualizationSide; 3] = [
+        VisualizationSide::Full,
+        VisualizationSide::Left,
+        VisualizationSide::Right,
+    ];
+
+    #[test]
+    fn every_animation_paints_the_color_picked() {
+        for animation in ALL {
+            let pixels = render_working(
+                animation,
+                400.0,
+                &VisualizationSide::Full,
+                VisualizationColor::Red,
+            );
+            let painted = pixels.paint_color();
+            assert!(
+                same_color(painted, rgb(VisualizationColor::Red.to_color())),
+                "{animation:?} painted {painted:?}"
+            );
+        }
+    }
+
+    /// Across the strip, the panel's thickness, nothing may spill: a pixel of
+    /// slack is for antialiasing. Along it the applet's frame clips, and paint
+    /// past the ends is partly meant: on a side applet the droplet lands on
+    /// the inner edge, and each half draws its half of the flash.
+    #[test]
+    fn every_animation_stays_within_the_strips_thickness() {
+        for animation in ALL {
+            for side in &SIDES {
+                for elapsed_ms in [0.0, 120.0, 400.0, 900.0, 1500.0, 1899.0, 5000.0] {
+                    let pixels =
+                        render_working(animation, elapsed_ms, side, VisualizationColor::White);
+                    assert_eq!(
+                        pixels.painted_outside(WIDTH, HEIGHT, MARGIN as i32, 1),
+                        0,
+                        "{animation:?} on {side:?} at {elapsed_ms}ms spilled past the strip"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_animation_moves_and_repeats_itself_exactly() {
+        for animation in ALL {
+            let at = |elapsed_ms| {
+                render_working(
+                    animation,
+                    elapsed_ms,
+                    &VisualizationSide::Full,
+                    VisualizationColor::White,
+                )
+            };
+            assert_eq!(
+                at(700.0).difference(&at(700.0)),
+                0,
+                "{animation:?} drew two frames for one moment"
+            );
+            assert!(
+                at(300.0).difference(&at(700.0)) > 20,
+                "{animation:?} stood still"
+            );
+        }
+    }
+}

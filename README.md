@@ -31,7 +31,9 @@ just uninstall
 ```
 
 Then add "Super Applet" to a panel in COSMIC Settings. Pick Full, or the Left
-and Right halves for either side of the panel's center.
+and Right halves for either side of the panel's center. Every copy shares one
+set of settings, in `~/.config/super-cosmic-applet/settings.ron`: a change made
+in one popup shows in the others.
 
 ## Develop
 

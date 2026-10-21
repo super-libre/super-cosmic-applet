@@ -28,6 +28,22 @@ pub struct WorkingAnimationComponent {
     elapsed_ms: f32,
 }
 
+/// What the app's tests read back, to check what the panel would draw.
+#[cfg(test)]
+impl WorkingAnimationComponent {
+    pub(crate) fn theme(&self) -> WorkingAnimationTheme {
+        self.theme
+    }
+
+    pub(crate) fn colors(&self) -> &VisualizationColorConfig {
+        &self.colors
+    }
+
+    pub(crate) fn elapsed_ms(&self) -> f32 {
+        self.elapsed_ms
+    }
+}
+
 impl WorkingAnimationComponent {
     pub fn new(
         theme: WorkingAnimationTheme,
@@ -87,7 +103,9 @@ impl Program<Message, Theme, Renderer> for WorkingAnimationComponent {
             cosmic::iced::Color::TRANSPARENT,
         );
         let ctx = WorkingDrawContext {
-            bounds,
+            // In the canvas's own frame, as for the visualization: iced moves
+            // the drawing to where the canvas sits in the window.
+            bounds: Rectangle::with_size(bounds.size()),
             elapsed_ms: self.elapsed_ms,
             color_config: &self.colors,
             is_dark: theme.cosmic().is_dark,
@@ -139,5 +157,131 @@ mod working_animation_component_tests {
         component.update_theme(WorkingAnimationTheme::Comet);
 
         assert_eq!(component.elapsed_ms, 1_500.0);
+    }
+}
+
+#[cfg(test)]
+mod drawing_tests {
+    //! The component as its canvas draws it: the animation it was given, at
+    //! the moment it was set to, in the theme's color, wherever the canvas
+    //! sits in the applet's window.
+    use super::*;
+    use crate::models::theme::VisualizationColor;
+    use crate::ui::components::visualizations::test_support::{
+        HEIGHT, Pixels, WIDTH, colors, render, render_program, rgb, same_color, theme,
+    };
+    use crate::util::u32_to_f32;
+    use cosmic::iced::Size;
+
+    fn component(
+        animation: WorkingAnimationTheme,
+        colors: VisualizationColorConfig,
+    ) -> WorkingAnimationComponent {
+        let mut component =
+            WorkingAnimationComponent::new(animation, VisualizationSide::Full, colors);
+        component.set_elapsed(400.0);
+        component
+    }
+
+    /// Draw `component` as its canvas would, with the canvas at `(x, y)` in
+    /// the window.
+    fn draw_at(component: &WorkingAnimationComponent, x: f32, y: f32, dark: bool) -> Pixels {
+        let theme = theme(dark);
+        let bounds = Rectangle {
+            x,
+            y,
+            width: u32_to_f32(WIDTH),
+            height: u32_to_f32(HEIGHT),
+        };
+        render_program(WIDTH, HEIGHT, |renderer| {
+            component.draw(&(), renderer, &theme, bounds, mouse::Cursor::Unavailable)
+        })
+    }
+
+    /// As for the visualization: the canvas sits inside the applet's padding,
+    /// and iced already moves what it draws there.
+    #[test]
+    fn it_draws_the_same_wherever_its_canvas_sits() {
+        for animation in [WorkingAnimationTheme::Droplet, WorkingAnimationTheme::Comet] {
+            let component = component(animation, colors(VisualizationColor::White));
+            let at_origin = draw_at(&component, 0.0, 0.0, true);
+            let padded = draw_at(&component, 12.0, 6.0, true);
+            assert!(at_origin.painted() > 0);
+            assert_eq!(
+                at_origin.difference(&padded),
+                0,
+                "{animation:?} moved with its canvas"
+            );
+        }
+    }
+
+    #[test]
+    fn it_draws_the_animation_it_was_given_at_its_moment() {
+        let theme = theme(true);
+        let colors = colors(VisualizationColor::White);
+        let strip = Rectangle::with_size(Size::new(u32_to_f32(WIDTH), u32_to_f32(HEIGHT)));
+        for animation in [
+            WorkingAnimationTheme::Droplet,
+            WorkingAnimationTheme::Comet,
+            WorkingAnimationTheme::Dots,
+        ] {
+            let direct = render(WIDTH, HEIGHT, |frame| {
+                working_animations::draw(
+                    animation,
+                    frame,
+                    &WorkingDrawContext {
+                        bounds: strip,
+                        elapsed_ms: 400.0,
+                        color_config: &colors,
+                        is_dark: true,
+                        cosmic_theme: theme.cosmic(),
+                        side: &VisualizationSide::Full,
+                    },
+                );
+            });
+            assert_eq!(
+                draw_at(&component(animation, colors.clone()), 0.0, 0.0, true).difference(&direct),
+                0,
+                "{animation:?} drew something else"
+            );
+        }
+    }
+
+    #[test]
+    fn it_paints_the_color_set_for_the_themes_darkness() {
+        let mut component = component(
+            WorkingAnimationTheme::Dots,
+            VisualizationColorConfig {
+                light_colors: VisualizationColor::Red,
+                dark_colors: VisualizationColor::Blue,
+            },
+        );
+        let dark = draw_at(&component, 0.0, 0.0, true).paint_color();
+        let light = draw_at(&component, 0.0, 0.0, false).paint_color();
+        assert!(
+            same_color(dark, rgb(VisualizationColor::Blue.to_color())),
+            "{dark:?}"
+        );
+        assert!(
+            same_color(light, rgb(VisualizationColor::Red.to_color())),
+            "{light:?}"
+        );
+
+        component.update_colors(colors(VisualizationColor::Green));
+        let recolored = draw_at(&component, 0.0, 0.0, true).paint_color();
+        assert!(
+            same_color(recolored, rgb(VisualizationColor::Green.to_color())),
+            "{recolored:?}"
+        );
+    }
+
+    #[test]
+    fn it_becomes_a_canvas_element() {
+        let element: Element<'_, Message> = component(
+            WorkingAnimationTheme::Dots,
+            colors(VisualizationColor::White),
+        )
+        .into();
+        drop(element);
     }
 }

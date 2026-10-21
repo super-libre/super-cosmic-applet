@@ -610,3 +610,65 @@ mod speech_phase_tests {
         assert_eq!(change, super::PhaseChange::default());
     }
 }
+
+#[cfg(test)]
+mod phase_tests {
+    //! [`Phase`] is what the panel asks of either product: live audio to
+    //! draw, a wait to animate, or neither. Each product's stages have to map
+    //! onto the same three answers.
+    use super::{CycleEvent, Phase, RecordingPhase, SpeechEvent, SpeechPhase};
+
+    /// (live audio, working, active, animation clock running)
+    fn answers(phase: &Phase) -> (bool, bool, bool, bool) {
+        (
+            phase.has_live_audio(),
+            phase.is_working(),
+            phase.is_active(),
+            phase.animation_elapsed_ms().is_some(),
+        )
+    }
+
+    fn recording(events: &[CycleEvent]) -> Phase {
+        let mut phase = RecordingPhase::default();
+        for event in events {
+            phase.apply(*event);
+        }
+        Phase::Recording(phase)
+    }
+
+    fn speech(events: &[SpeechEvent]) -> Phase {
+        let mut phase = SpeechPhase::default();
+        for event in events {
+            phase.apply(*event);
+        }
+        Phase::Speech(phase)
+    }
+
+    #[test]
+    fn an_idle_product_asks_for_nothing() {
+        assert_eq!(answers(&recording(&[])), (false, false, false, false));
+        assert_eq!(answers(&speech(&[])), (false, false, false, false));
+    }
+
+    #[test]
+    fn recording_and_speaking_are_live_audio() {
+        let recording = recording(&[CycleEvent::RecordingFlag(true)]);
+        let speaking = speech(&[
+            SpeechEvent::SpeakingFlag(true),
+            SpeechEvent::Progress { spoken_ms: 40 },
+        ]);
+        assert_eq!(answers(&recording), (true, false, true, false));
+        assert_eq!(answers(&speaking), (true, false, true, false));
+    }
+
+    #[test]
+    fn transcribing_and_synthesizing_are_a_wait_with_a_running_clock() {
+        let transcribing = recording(&[
+            CycleEvent::RecordingFlag(true),
+            CycleEvent::RecordingFlag(false),
+        ]);
+        let synthesizing = speech(&[SpeechEvent::SpeakingFlag(true)]);
+        assert_eq!(answers(&transcribing), (false, true, true, true));
+        assert_eq!(answers(&synthesizing), (false, true, true, true));
+    }
+}

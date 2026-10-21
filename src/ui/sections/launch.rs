@@ -42,3 +42,40 @@ pub fn create_launch_section(links: &[ProductLink]) -> Element<'static, Message>
         })
         .into()
 }
+
+#[cfg(test)]
+mod launch_tests {
+    use super::create_launch_section;
+    use crate::app::ProductLink;
+    use crate::products::Product::{Stt, Tts};
+    use crate::ui::simulator::{Simulator, every_click};
+
+    #[test]
+    fn each_installed_product_gets_an_icon_that_opens_its_app() {
+        let links = [ProductLink::new(Stt, true), ProductLink::new(Tts, true)];
+        assert_eq!(
+            every_click(|| create_launch_section(&links)),
+            ["LaunchApp(Stt)", "LaunchApp(Tts)"]
+        );
+    }
+
+    #[test]
+    fn a_product_that_isnt_installed_gets_no_icon() {
+        let links = [ProductLink::new(Stt, false), ProductLink::new(Tts, true)];
+        assert_eq!(
+            every_click(|| create_launch_section(&links)),
+            ["LaunchApp(Tts)"]
+        );
+    }
+
+    /// The names are in tooltips, which only show on hover.
+    #[test]
+    fn the_row_is_icons_without_text() {
+        let links = [ProductLink::new(Stt, true), ProductLink::new(Tts, true)];
+        assert!(
+            Simulator::new(create_launch_section(&links))
+                .texts()
+                .is_empty()
+        );
+    }
+}

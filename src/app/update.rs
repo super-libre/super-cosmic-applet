@@ -11,6 +11,7 @@ use super_engine_client::session;
 use super::SuperApplet;
 use super::init::ping_or_retry;
 use crate::app::{DaemonMessage, Message};
+use crate::config::AppletConfig;
 use crate::daemon::{RetryStrategy, ping_daemon};
 use crate::models::state::{
     CycleEvent, DaemonConnectionState, IsOpen, Phase, PhaseChange, SpeechEvent,
@@ -53,6 +54,7 @@ impl SuperApplet {
                 self.set_visualization_color(product, color, is_dark)
             }
             Message::SetColorThemeEntity(entity) => self.set_color_theme(entity),
+            Message::SettingsChanged(config) => self.settings_changed(config),
             Message::WorkingAnimationTick => {
                 if let Some(elapsed_ms) = self
                     .front()
@@ -244,9 +246,10 @@ impl SuperApplet {
     /// or removed since the last ping.
     fn ping_timeout(&mut self) -> cosmic_app::Task<Message> {
         let mut tasks = Vec::new();
+        let is_installed = self.is_installed;
         for link in &mut self.links {
             let product = link.product;
-            let installed = product.is_installed();
+            let installed = is_installed(product);
             if installed != link.installed {
                 info!(
                     "{} was {}",
@@ -411,8 +414,9 @@ impl SuperApplet {
         product: Product,
         theme: VisualizationTheme,
     ) -> cosmic_app::Task<Message> {
-        self.config
-            .update(|c| c.visualization.product_mut(product).theme = theme);
+        self.config.update_in(&self.settings_dir, |c| {
+            c.visualization.product_mut(product).theme = theme;
+        });
         if self.shown == Some(product) {
             self.apply_look();
             self.visualization
@@ -427,8 +431,9 @@ impl SuperApplet {
         product: Product,
         theme: WorkingAnimationTheme,
     ) -> cosmic_app::Task<Message> {
-        self.config
-            .update(|c| c.visualization.product_mut(product).working_animation = theme);
+        self.config.update_in(&self.settings_dir, |c| {
+            c.visualization.product_mut(product).working_animation = theme;
+        });
         if self.shown == Some(product) {
             self.apply_look();
         }
@@ -479,17 +484,32 @@ impl SuperApplet {
     }
 
     fn set_applet_width(&mut self, width: u32) -> cosmic_app::Task<Message> {
-        self.config.update(|c| c.ui.applet_width = width);
-        // Refresh the visualization so it adapts to the new size.
-        self.visualization.clear();
-        self.visualization
-            .update_audio_level(self.audio_level, self.is_speech_detected);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.applet_width = width);
+        self.resize_visualization();
         cosmic_app::Task::none()
     }
 
+    /// Refresh the visualization so it adapts to a new size.
+    fn resize_visualization(&mut self) {
+        self.visualization.clear();
+        self.visualization
+            .update_audio_level(self.audio_level, self.is_speech_detected);
+    }
+
     fn set_show_icon(&mut self, show_icon: bool) -> cosmic_app::Task<Message> {
-        self.config.update(|c| c.ui.show_icon = show_icon);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.show_icon = show_icon);
         cosmic_app::Task::none()
+    }
+
+    /// The icon-alignment selector's entry for `alignment`.
+    fn icon_alignment_entity(&self, alignment: IconAlignment) -> Entity {
+        match alignment {
+            IconAlignment::Start => self.icon_alignment_start,
+            IconAlignment::Center => self.icon_alignment_center,
+            IconAlignment::End => self.icon_alignment_end,
+        }
     }
 
     fn set_icon_alignment(&mut self, entity: Entity) -> cosmic_app::Task<Message> {
@@ -503,12 +523,14 @@ impl SuperApplet {
         } else {
             IconAlignment::Start
         };
-        self.config.update(|c| c.ui.icon_alignment = alignment);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.icon_alignment = alignment);
         cosmic_app::Task::none()
     }
 
     fn set_show_visualizations(&mut self, show: bool) -> cosmic_app::Task<Message> {
-        self.config.update(|c| c.ui.show_visualization = show);
+        self.config
+            .update_in(&self.settings_dir, |c| c.ui.show_visualization = show);
         cosmic_app::Task::none()
     }
 
@@ -518,7 +540,7 @@ impl SuperApplet {
         color: VisualizationColor,
         is_dark: bool,
     ) -> cosmic_app::Task<Message> {
-        self.config.update(|c| {
+        self.config.update_in(&self.settings_dir, |c| {
             c.visualization
                 .product_mut(product)
                 .colors
@@ -538,5 +560,712 @@ impl SuperApplet {
             self.selected_theme_for_config = true;
         }
         cosmic_app::Task::none()
+    }
+
+    /// Take the settings another applet saved, as this one takes its own
+    /// changes, without saving them back.
+    fn settings_changed(&mut self, config: AppletConfig) -> cosmic_app::Task<Message> {
+        if config == self.config {
+            return cosmic_app::Task::none();
+        }
+        let resized = config.ui.applet_width != self.config.ui.applet_width;
+        self.config = config;
+        let entity = self.icon_alignment_entity(self.config.ui.icon_alignment);
+        self.icon_alignment_model.activate(entity);
+        self.apply_look();
+        if resized {
+            self.resize_visualization();
+        }
+        cosmic_app::Task::none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The applet's message handling, driven the way iced drives it, with
+    //! the tests playing both daemons. What a handler leaves for iced to run,
+    //! a ping or a popup surface, isn't run.
+    use std::time::Duration;
+
+    use cosmic::iced::window;
+
+    use crate::app::testing::TestApplet;
+    use crate::app::{DaemonMessage, Message};
+    use crate::config::AppletConfig;
+    use crate::models::state::{DaemonConnectionState, IsOpen};
+    use crate::models::theme::{
+        IconAlignment, VisualizationColor, VisualizationTheme, WorkingAnimationTheme,
+    };
+    use crate::products::Product::{self, Stt, Tts};
+
+    fn connected(products: &[Product]) -> TestApplet {
+        let mut applet = TestApplet::new(products);
+        for &product in products {
+            applet.connect(product);
+        }
+        applet
+    }
+
+    /// Super STT starts recording, or Super TTS starts playing audio: the
+    /// live phase each draws as the visualization.
+    fn make_live(applet: &mut TestApplet, product: Product) {
+        match product {
+            Stt => applet.daemon(Stt, DaemonMessage::RecordingState(true)),
+            Tts => applet
+                .daemon(Tts, DaemonMessage::SpeakingState(true))
+                .daemon(Tts, DaemonMessage::SpeechProgress { spoken_ms: 40 }),
+        };
+    }
+
+    fn bands(product: Product, energy: f32) -> Message {
+        Message::Daemon(
+            product,
+            DaemonMessage::FrequencyBands {
+                bands: vec![energy; 32],
+                total_energy: energy,
+            },
+        )
+    }
+
+    mod connection {
+        use super::*;
+
+        #[test]
+        fn a_connected_daemon_starts_its_retries_over() {
+            let mut applet = TestApplet::new(&[Stt]);
+            applet.daemon(Stt, DaemonMessage::ScheduleRetry);
+            assert_eq!(applet.link(Stt).retry_strategy.attempt, 1);
+
+            applet.connect(Stt);
+
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connected
+            );
+            assert_eq!(applet.link(Stt).retry_strategy.attempt, 0);
+        }
+
+        #[test]
+        fn each_scheduled_retry_backs_off_further_and_shows_connecting() {
+            let mut applet = connected(&[Stt]);
+            for attempt in 1..=3 {
+                applet.daemon(Stt, DaemonMessage::ScheduleRetry);
+                assert_eq!(applet.link(Stt).retry_strategy.attempt, attempt);
+            }
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connecting
+            );
+        }
+
+        #[test]
+        fn losing_a_live_connection_backs_off_from_the_start() {
+            let mut applet = connected(&[Stt]);
+            applet.applet.link_mut(Stt).retry_strategy.attempt = 3;
+
+            applet.daemon(Stt, DaemonMessage::Error("Connection lost".into()));
+            applet.daemon(Stt, DaemonMessage::ScheduleRetry);
+
+            assert_eq!(applet.link(Stt).retry_strategy.attempt, 1);
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connecting
+            );
+        }
+
+        #[test]
+        fn a_ping_answered_while_connected_keeps_it_connected() {
+            let mut applet = connected(&[Tts]);
+            applet.daemon(Tts, DaemonMessage::ScheduleRetry);
+
+            applet.daemon(Tts, DaemonMessage::PingResponse);
+
+            assert_eq!(
+                applet.link(Tts).daemon_state,
+                DaemonConnectionState::Connected
+            );
+            assert_eq!(applet.link(Tts).retry_strategy.attempt, 0);
+        }
+
+        #[test]
+        fn a_manual_retry_from_an_error_starts_over() {
+            let mut applet = connected(&[Stt]);
+            applet.daemon(Stt, DaemonMessage::Revoked("expired".into()));
+            applet.applet.link_mut(Stt).retry_strategy.attempt = 5;
+
+            applet.daemon(Stt, DaemonMessage::RetryConnection);
+
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connecting
+            );
+            assert_eq!(applet.link(Stt).retry_strategy.attempt, 0);
+        }
+
+        #[test]
+        fn a_retry_for_a_product_removed_meanwhile_is_dropped() {
+            let mut applet = connected(&[Stt, Tts]);
+            applet.daemon(Tts, DaemonMessage::Revoked("expired".into()));
+            applet.applet.link_mut(Tts).installed = false;
+
+            applet.daemon(Tts, DaemonMessage::RetryConnection);
+
+            assert!(matches!(
+                applet.link(Tts).daemon_state,
+                DaemonConnectionState::Error(_)
+            ));
+        }
+
+        #[test]
+        fn a_revoked_session_is_an_error_until_the_daemon_takes_it_back() {
+            let mut applet = connected(&[Stt]);
+
+            applet.daemon(Stt, DaemonMessage::Revoked("exe_changed".into()));
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Error("revoked: exe_changed".into())
+            );
+
+            applet.connect(Stt);
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connected
+            );
+        }
+
+        #[test]
+        fn a_denied_subscription_is_blocked_with_its_reason() {
+            let mut applet = connected(&[Tts]);
+
+            applet.daemon(Tts, DaemonMessage::Blocked("user_denied".into()));
+
+            assert_eq!(
+                applet.link(Tts).daemon_state,
+                DaemonConnectionState::Blocked("user_denied".into())
+            );
+        }
+
+        #[test]
+        fn what_is_only_for_the_log_changes_nothing() {
+            let mut applet = connected(&[Stt]);
+            applet
+                .daemon(Stt, DaemonMessage::OtherEvent("subscribed".into()))
+                .daemon(Stt, DaemonMessage::SubscriptionError("stream ended".into()));
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connected
+            );
+        }
+
+        #[test]
+        fn the_ping_notices_a_product_installed_since() {
+            let mut applet = connected(&[Stt]);
+            assert!(!applet.link(Tts).installed);
+
+            applet.applet.is_installed = |_| true;
+            applet.send(Message::PingTimeout);
+
+            assert!(applet.link(Tts).installed);
+            assert_eq!(
+                applet.link(Tts).daemon_state,
+                DaemonConnectionState::Connecting
+            );
+            assert_eq!(
+                applet.link(Stt).daemon_state,
+                DaemonConnectionState::Connected
+            );
+        }
+
+        #[test]
+        fn the_ping_notices_a_product_removed_since_and_stops_showing_it() {
+            let mut applet = connected(&[Stt, Tts]);
+            make_live(&mut applet, Tts);
+            assert_eq!(applet.applet.front(), Some(Tts));
+
+            applet.applet.is_installed = |p| p == Stt;
+            applet.send(Message::PingTimeout);
+
+            assert!(!applet.link(Tts).installed);
+            assert_eq!(
+                applet.applet.front(),
+                None,
+                "a removed product stays in front"
+            );
+        }
+    }
+
+    mod activity {
+        use super::*;
+
+        #[test]
+        fn a_product_shows_only_once_connected() {
+            let mut applet = TestApplet::new(&[Stt]);
+            make_live(&mut applet, Stt);
+            assert_eq!(applet.applet.front(), None);
+
+            applet.connect(Stt);
+            assert_eq!(applet.applet.front(), Some(Stt));
+        }
+
+        #[test]
+        fn both_active_take_turns_in_front() {
+            let mut applet = connected(&[Stt, Tts]);
+            make_live(&mut applet, Stt);
+            make_live(&mut applet, Tts);
+            assert_eq!(applet.applet.front(), Some(Stt));
+
+            applet.send(Message::AlternateFront);
+            assert_eq!(applet.applet.front(), Some(Tts));
+            assert_eq!(applet.applet.shown, Some(Tts));
+
+            applet.send(Message::AlternateFront);
+            assert_eq!(applet.applet.front(), Some(Stt));
+        }
+
+        #[test]
+        fn only_the_product_in_front_draws_its_audio() {
+            let mut applet = connected(&[Stt, Tts]);
+            make_live(&mut applet, Stt);
+            make_live(&mut applet, Tts);
+
+            applet.send(bands(Tts, 0.9));
+            assert_eq!(applet.applet.audio_level, 0.0);
+            assert!(
+                applet
+                    .applet
+                    .visualization
+                    .bands()
+                    .iter()
+                    .all(|b| *b == 0.0)
+            );
+
+            applet.send(bands(Stt, 0.5));
+            assert_eq!(applet.applet.audio_level, 0.5);
+            assert!(applet.applet.is_speech_detected);
+            assert_eq!(applet.applet.visualization.bands(), &[0.5; 32]);
+        }
+
+        #[test]
+        fn switching_products_clears_the_other_ones_bars() {
+            let mut applet = connected(&[Stt, Tts]);
+            make_live(&mut applet, Stt);
+            make_live(&mut applet, Tts);
+            applet.send(bands(Stt, 0.5));
+
+            applet.send(Message::AlternateFront);
+
+            assert_eq!(applet.applet.audio_level, 0.0);
+            assert!(!applet.applet.is_speech_detected);
+            assert!(
+                applet
+                    .applet
+                    .visualization
+                    .bands()
+                    .iter()
+                    .all(|b| *b == 0.0)
+            );
+        }
+
+        #[test]
+        fn a_finished_recording_retires_its_bars() {
+            let mut applet = connected(&[Stt]);
+            make_live(&mut applet, Stt);
+            applet.send(bands(Stt, 0.5));
+
+            applet
+                .daemon(Stt, DaemonMessage::RecordingState(false))
+                .daemon(Stt, DaemonMessage::TranscribingStarted);
+
+            assert!(
+                applet
+                    .applet
+                    .visualization
+                    .bands()
+                    .iter()
+                    .all(|b| *b == 0.0)
+            );
+            assert!(applet.link(Stt).phase.is_working());
+
+            applet.daemon(Stt, DaemonMessage::TranscribingStopped);
+            assert_eq!(applet.applet.front(), None);
+        }
+
+        #[test]
+        fn an_event_for_the_other_products_activity_is_ignored() {
+            let mut applet = connected(&[Stt, Tts]);
+
+            applet
+                .daemon(Tts, DaemonMessage::RecordingState(true))
+                .daemon(Tts, DaemonMessage::TranscribingStarted)
+                .daemon(Stt, DaemonMessage::SpeakingState(true));
+
+            assert!(!applet.link(Tts).phase.is_active());
+            assert!(!applet.link(Stt).phase.is_active());
+        }
+
+        #[test]
+        fn the_working_animation_runs_on_the_clock_of_the_product_in_front() {
+            let mut applet = connected(&[Tts]);
+            applet.send(Message::WorkingAnimationTick);
+            assert_eq!(applet.applet.working_animation.elapsed_ms(), 0.0);
+
+            applet.daemon(Tts, DaemonMessage::SpeakingState(true));
+            assert!(applet.link(Tts).phase.is_working(), "synthesizing");
+            std::thread::sleep(Duration::from_millis(5));
+            applet.send(Message::WorkingAnimationTick);
+
+            assert!(applet.applet.working_animation.elapsed_ms() >= 5.0);
+        }
+    }
+
+    mod look {
+        //! Each product draws in its own style, animation and colors, which
+        //! the components take on whenever that product comes to the front.
+        use super::*;
+
+        #[test]
+        fn the_product_in_front_is_drawn_in_its_own_look() {
+            let mut applet = connected(&[Stt, Tts]);
+            applet
+                .send(Message::SetVisualizationTheme(
+                    Tts,
+                    VisualizationTheme::Waveform,
+                ))
+                .send(Message::SetWorkingAnimation(
+                    Tts,
+                    WorkingAnimationTheme::Dots,
+                ))
+                .send(Message::SetVisualizationColor(
+                    Tts,
+                    VisualizationColor::Red,
+                    true,
+                ));
+            make_live(&mut applet, Stt);
+            assert_eq!(
+                applet.applet.visualization.theme(),
+                &VisualizationTheme::default()
+            );
+
+            make_live(&mut applet, Tts);
+            applet.send(Message::AlternateFront);
+
+            assert_eq!(applet.applet.shown, Some(Tts));
+            assert_eq!(
+                applet.applet.visualization.theme(),
+                &VisualizationTheme::Waveform
+            );
+            assert_eq!(
+                applet.applet.working_animation.theme(),
+                WorkingAnimationTheme::Dots
+            );
+            assert_eq!(
+                applet.applet.visualization.colors().dark_colors,
+                VisualizationColor::Red
+            );
+            assert_eq!(
+                applet.applet.working_animation.colors().dark_colors,
+                VisualizationColor::Red
+            );
+        }
+
+        #[test]
+        fn restyling_the_product_in_front_redraws_it_at_once() {
+            let mut applet = connected(&[Stt]);
+            make_live(&mut applet, Stt);
+
+            applet
+                .send(Message::SetVisualizationTheme(
+                    Stt,
+                    VisualizationTheme::Pulse,
+                ))
+                .send(Message::SetWorkingAnimation(
+                    Stt,
+                    WorkingAnimationTheme::Comet,
+                ))
+                .send(Message::SetVisualizationColor(
+                    Stt,
+                    VisualizationColor::Cyan,
+                    false,
+                ));
+
+            assert_eq!(
+                applet.applet.visualization.theme(),
+                &VisualizationTheme::Pulse
+            );
+            assert_eq!(
+                applet.applet.working_animation.theme(),
+                WorkingAnimationTheme::Comet
+            );
+            assert_eq!(
+                applet.applet.visualization.colors().light_colors,
+                VisualizationColor::Cyan
+            );
+        }
+
+        #[test]
+        fn restyling_the_product_behind_leaves_the_panel_alone() {
+            let mut applet = connected(&[Stt, Tts]);
+            make_live(&mut applet, Stt);
+
+            applet.send(Message::SetVisualizationTheme(
+                Tts,
+                VisualizationTheme::Pulse,
+            ));
+
+            assert_eq!(
+                applet.applet.visualization.theme(),
+                &VisualizationTheme::default()
+            );
+            assert_eq!(
+                applet.config().visualization.tts.theme,
+                VisualizationTheme::Pulse
+            );
+        }
+
+        #[test]
+        fn picking_a_style_or_an_animation_closes_its_list() {
+            let mut applet = connected(&[Stt]);
+            applet.send(Message::RevealerToggle(IsOpen::VisualizationTheme));
+            applet.send(Message::SetVisualizationTheme(
+                Stt,
+                VisualizationTheme::Pulse,
+            ));
+            assert_eq!(applet.applet.is_open, IsOpen::None);
+
+            applet.send(Message::RevealerToggle(IsOpen::WorkingAnimation));
+            applet.send(Message::SetWorkingAnimation(
+                Stt,
+                WorkingAnimationTheme::Comet,
+            ));
+            assert_eq!(applet.applet.is_open, IsOpen::None);
+        }
+
+        #[test]
+        fn picking_a_color_keeps_the_swatches_open() {
+            let mut applet = connected(&[Stt]);
+            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
+
+            applet.send(Message::SetVisualizationColor(
+                Stt,
+                VisualizationColor::Red,
+                true,
+            ));
+
+            assert_eq!(applet.applet.is_open, IsOpen::VisualizationColors);
+        }
+    }
+
+    mod settings {
+        use super::*;
+
+        #[test]
+        fn every_change_is_saved_for_the_other_applets() {
+            let mut applet = connected(&[Stt, Tts]);
+            let center = applet.applet.icon_alignment_center;
+
+            applet
+                .send(Message::SetVisualizationTheme(
+                    Tts,
+                    VisualizationTheme::Pulse,
+                ))
+                .send(Message::SetWorkingAnimation(
+                    Stt,
+                    WorkingAnimationTheme::Comet,
+                ))
+                .send(Message::SetVisualizationColor(
+                    Stt,
+                    VisualizationColor::Red,
+                    false,
+                ))
+                .send(Message::SetAppletWidth(240))
+                .send(Message::SetShowIcon(false))
+                .send(Message::SetIconAlignmentEntity(center))
+                .send(Message::SetShowVisualizations(false));
+
+            let saved = applet.saved().expect("the changes were saved");
+            assert_eq!(&saved, applet.config());
+            assert_eq!(saved.visualization.tts.theme, VisualizationTheme::Pulse);
+            assert_eq!(
+                saved.visualization.stt.working_animation,
+                WorkingAnimationTheme::Comet
+            );
+            assert_eq!(
+                saved.visualization.stt.colors.light_colors,
+                VisualizationColor::Red
+            );
+            assert_eq!(saved.ui.applet_width, 240);
+            assert!(!saved.ui.show_icon);
+            assert_eq!(saved.ui.icon_alignment, IconAlignment::Center);
+            assert!(!saved.ui.show_visualization);
+        }
+
+        #[test]
+        fn each_icon_position_maps_to_its_alignment() {
+            let mut applet = connected(&[Stt]);
+            for (entity, alignment) in [
+                (applet.applet.icon_alignment_start, IconAlignment::Start),
+                (applet.applet.icon_alignment_center, IconAlignment::Center),
+                (applet.applet.icon_alignment_end, IconAlignment::End),
+            ] {
+                applet.send(Message::SetIconAlignmentEntity(entity));
+                assert_eq!(applet.config().ui.icon_alignment, alignment);
+                assert_eq!(applet.applet.icon_alignment_model.active(), entity);
+            }
+        }
+
+        #[test]
+        fn the_theme_selector_picks_which_colors_the_swatches_set() {
+            let mut applet = connected(&[Stt]);
+            let (light, dark) = (
+                applet.applet.theme_selector_light,
+                applet.applet.theme_selector_dark,
+            );
+
+            applet.send(Message::SetColorThemeEntity(light));
+            assert!(!applet.applet.selected_theme_for_config);
+            assert_eq!(applet.applet.theme_selector_model.active(), light);
+
+            applet.send(Message::SetColorThemeEntity(dark));
+            assert!(applet.applet.selected_theme_for_config);
+        }
+
+        #[test]
+        fn one_list_opens_at_a_time_and_a_second_press_closes_it() {
+            let mut applet = connected(&[Stt]);
+
+            applet.send(Message::RevealerToggle(IsOpen::VisualizationTheme));
+            assert_eq!(applet.applet.is_open, IsOpen::VisualizationTheme);
+            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
+            assert_eq!(applet.applet.is_open, IsOpen::VisualizationColors);
+            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
+            assert_eq!(applet.applet.is_open, IsOpen::None);
+        }
+
+        #[test]
+        fn the_picked_tab_is_remembered() {
+            let mut applet = connected(&[Stt, Tts]);
+            assert_eq!(applet.applet.settings_tab(), Some(Stt));
+
+            applet.send(Message::SelectSettingsTab(Tts));
+
+            assert_eq!(applet.applet.settings_tab(), Some(Tts));
+        }
+
+        #[test]
+        fn a_new_width_redraws_the_bars_at_that_size() {
+            let mut applet = connected(&[Stt]);
+            make_live(&mut applet, Stt);
+            applet.send(bands(Stt, 0.5));
+
+            applet.send(Message::SetAppletWidth(200));
+
+            // Redrawn from the level alone, until the next bands arrive.
+            assert_ne!(applet.applet.visualization.bands(), &[0.5; 32]);
+            assert!(applet.applet.visualization.bands().iter().any(|b| *b > 0.0));
+        }
+    }
+
+    mod sync {
+        //! Settings another applet saved, arriving through the watch.
+        use super::*;
+
+        fn theirs() -> AppletConfig {
+            let mut config = AppletConfig::default();
+            config.visualization.stt.theme = VisualizationTheme::Waveform;
+            config.visualization.stt.colors.dark_colors = VisualizationColor::Green;
+            config.ui.icon_alignment = IconAlignment::Start;
+            config.ui.applet_width = 250;
+            config
+        }
+
+        #[test]
+        fn another_applets_settings_are_taken_without_saving_them_back() {
+            let mut applet = connected(&[Stt]);
+
+            applet.send(Message::SettingsChanged(theirs()));
+
+            assert_eq!(applet.config(), &theirs());
+            assert_eq!(applet.saved(), None);
+        }
+
+        #[test]
+        fn another_applets_icon_position_moves_the_selector() {
+            let mut applet = connected(&[Stt]);
+
+            applet.send(Message::SettingsChanged(theirs()));
+
+            assert_eq!(
+                applet.applet.icon_alignment_model.active(),
+                applet.applet.icon_alignment_start
+            );
+        }
+
+        #[test]
+        fn another_applets_restyle_redraws_the_product_in_front() {
+            let mut applet = connected(&[Stt]);
+            make_live(&mut applet, Stt);
+            applet.send(bands(Stt, 0.5));
+
+            applet.send(Message::SettingsChanged(theirs()));
+
+            assert_eq!(
+                applet.applet.visualization.theme(),
+                &VisualizationTheme::Waveform
+            );
+            assert_eq!(
+                applet.applet.working_animation.colors().dark_colors,
+                VisualizationColor::Green
+            );
+            // The new width redrew the bars from the level.
+            assert_ne!(applet.applet.visualization.bands(), &[0.5; 32]);
+        }
+
+        #[test]
+        fn the_same_settings_again_change_nothing() {
+            let mut applet = connected(&[Stt]);
+            make_live(&mut applet, Stt);
+            applet.send(bands(Stt, 0.5));
+
+            applet.send(Message::SettingsChanged(AppletConfig::default()));
+
+            assert_eq!(applet.applet.visualization.bands(), &[0.5; 32]);
+        }
+    }
+
+    mod popup {
+        use super::*;
+
+        #[test]
+        fn without_a_panel_window_the_popup_stays_closed() {
+            let mut applet = connected(&[Stt]);
+
+            applet.send(Message::TogglePopup);
+
+            assert_eq!(applet.applet.popup, None);
+        }
+
+        #[test]
+        fn toggling_an_open_popup_closes_it() {
+            let mut applet = connected(&[Stt]);
+            applet.applet.popup = Some(window::Id::unique());
+
+            applet.send(Message::TogglePopup);
+
+            assert_eq!(applet.applet.popup, None);
+        }
+
+        #[test]
+        fn closing_another_window_leaves_the_popup_open() {
+            let mut applet = connected(&[Stt]);
+            let popup = window::Id::unique();
+            applet.applet.popup = Some(popup);
+
+            applet.send(Message::CloseRequested(window::Id::unique()));
+            assert_eq!(applet.applet.popup, Some(popup));
+
+            let close = cosmic::Application::on_close_requested(&applet.applet, popup);
+            applet.send(close.expect("the applet asks to hear of every close"));
+            assert_eq!(applet.applet.popup, None);
+        }
     }
 }

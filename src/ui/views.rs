@@ -70,3 +70,45 @@ pub fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, 
         .padding([8, 0])
         .into()
 }
+
+#[cfg(test)]
+mod popup_tests {
+    //! The popup as a whole. Each section has its own tests; these pin what
+    //! the sections add up to.
+    use crate::app::testing::TestApplet;
+    use crate::products::Product::{Stt, Tts};
+    use crate::ui::simulator::{every_click, popup_texts};
+
+    #[test]
+    fn with_nothing_installed_it_is_the_header_and_a_note() {
+        let applet = TestApplet::new(&[]);
+        assert_eq!(
+            popup_texts(&applet),
+            [
+                "Super Applet".to_string(),
+                format!("v{}", crate::VERSION),
+                "Neither Super STT nor Super TTS is installed.".to_string(),
+                "Install either one to use this applet.".to_string(),
+            ]
+        );
+        assert_eq!(
+            every_click(|| applet.popup()),
+            ["OpenGitHub"],
+            "nothing to open, set or retry"
+        );
+    }
+
+    #[test]
+    fn it_opens_with_the_header_and_ends_with_the_apps() {
+        let mut applet = TestApplet::new(&[Stt, Tts]);
+        applet.connect(Stt).connect(Tts);
+
+        assert_eq!(popup_texts(&applet)[0], "Super Applet");
+        let clicks = every_click(|| applet.popup());
+        assert_eq!(clicks.first().map(String::as_str), Some("OpenGitHub"));
+        assert_eq!(
+            clicks[clicks.len() - 2..],
+            ["LaunchApp(Stt)", "LaunchApp(Tts)"]
+        );
+    }
+}

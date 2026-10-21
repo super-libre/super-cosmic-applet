@@ -320,15 +320,9 @@ impl VisualizationColor {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualizationColorConfig {
-    #[serde(
-        default,
-        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
-    )]
+    #[serde(default, deserialize_with = "crate::config::variant_or_default")]
     pub light_colors: VisualizationColor,
-    #[serde(
-        default,
-        deserialize_with = "super_engine_protocol::serde_helpers::deserialize_or_default"
-    )]
+    #[serde(default, deserialize_with = "crate::config::variant_or_default")]
     pub dark_colors: VisualizationColor,
 }
 
@@ -429,5 +423,240 @@ mod icon_alignment_tests {
         assert_eq!(json, "\"center\"");
         let back: IconAlignment = serde_json::from_str("\"end\"").expect("deserialize");
         assert_eq!(back, IconAlignment::End);
+    }
+
+    #[test]
+    fn each_alignment_places_the_icon_where_it_says() {
+        use cosmic::iced::Alignment;
+        assert_eq!(IconAlignment::Start.to_alignment(), Alignment::Start);
+        assert_eq!(IconAlignment::Center.to_alignment(), Alignment::Center);
+        assert_eq!(IconAlignment::End.to_alignment(), Alignment::End);
+    }
+
+    #[test]
+    fn the_selector_labels_each_alignment() {
+        assert_eq!(IconAlignment::Start.pretty_name(), "Start");
+        assert_eq!(IconAlignment::Center.pretty_name(), "Center");
+        assert_eq!(IconAlignment::End.pretty_name(), "End");
+    }
+}
+
+#[cfg(test)]
+mod visualization_theme_tests {
+    use super::VisualizationTheme;
+
+    const ALL: [VisualizationTheme; 4] = [
+        VisualizationTheme::Pulse,
+        VisualizationTheme::BottomEqualizer,
+        VisualizationTheme::CenteredEqualizer,
+        VisualizationTheme::Waveform,
+    ];
+
+    /// The selector hands a theme back as its `Display` id, so every theme
+    /// must parse back from it.
+    #[test]
+    fn display_from_str_round_trip() {
+        for theme in ALL {
+            assert_eq!(theme.to_string().parse::<VisualizationTheme>(), Ok(theme));
+        }
+    }
+
+    #[test]
+    fn unknown_is_rejected_and_default_is_centered_bars() {
+        assert_eq!("sparkles".parse::<VisualizationTheme>(), Err(()));
+        assert_eq!(
+            VisualizationTheme::default(),
+            VisualizationTheme::CenteredEqualizer
+        );
+    }
+
+    /// The configs every release wrote name a theme by its variant, so the
+    /// variant names are a wire format.
+    #[test]
+    fn serde_uses_the_variant_names_old_configs_hold() {
+        for (theme, name) in
+            ALL.into_iter()
+                .zip(["Pulse", "BottomEqualizer", "CenteredEqualizer", "Waveform"])
+        {
+            assert_eq!(
+                serde_json::to_string(&theme).expect("serialize"),
+                format!("\"{name}\"")
+            );
+        }
+    }
+
+    #[test]
+    fn every_theme_has_its_own_label() {
+        let labels: std::collections::BTreeSet<String> =
+            ALL.iter().map(VisualizationTheme::pretty_name).collect();
+        assert_eq!(labels.len(), ALL.len());
+        assert!(labels.iter().all(|label| !label.is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod working_animation_label_tests {
+    use super::WorkingAnimationTheme;
+
+    #[test]
+    fn every_animation_has_its_own_label() {
+        assert_eq!(WorkingAnimationTheme::Droplet.pretty_name(), "Droplet");
+        assert_eq!(WorkingAnimationTheme::Comet.pretty_name(), "Comet");
+        assert_eq!(WorkingAnimationTheme::Dots.pretty_name(), "Dots");
+    }
+}
+
+#[cfg(test)]
+mod visualization_side_tests {
+    use super::VisualizationSide;
+
+    const ALL: [VisualizationSide; 3] = [
+        VisualizationSide::Full,
+        VisualizationSide::Left,
+        VisualizationSide::Right,
+    ];
+
+    /// The launch flag names a side the way `Display` does.
+    #[test]
+    fn display_from_str_round_trip() {
+        for side in ALL {
+            assert_eq!(side.to_string().parse::<VisualizationSide>(), Ok(side));
+        }
+        assert_eq!(VisualizationSide::Left.to_string(), "left");
+    }
+
+    #[test]
+    fn unknown_is_rejected_and_default_is_full() {
+        assert_eq!("middle".parse::<VisualizationSide>(), Err(()));
+        assert_eq!(VisualizationSide::default(), VisualizationSide::Full);
+    }
+
+    #[test]
+    fn every_side_has_its_own_label() {
+        let labels: std::collections::BTreeSet<String> =
+            ALL.iter().map(VisualizationSide::pretty_name).collect();
+        assert_eq!(labels.len(), ALL.len());
+    }
+}
+
+#[cfg(test)]
+mod visualization_color_tests {
+    use super::{VisualizationColor, VisualizationColorConfig};
+    use cosmic::cosmic_theme::Theme;
+    use cosmic::iced::Color;
+
+    /// Every color, from the serialized variant names, so a variant added
+    /// without a test entry fails `every_variant_is_listed`.
+    fn all() -> Vec<VisualizationColor> {
+        [
+            "SystemAccent",
+            "White",
+            "Black",
+            "Gray",
+            "DarkGray",
+            "Blue",
+            "DarkBlue",
+            "Green",
+            "DarkGreen",
+            "Orange",
+            "DarkOrange",
+            "Purple",
+            "DarkPurple",
+            "Red",
+            "DarkRed",
+            "Cyan",
+            "DarkCyan",
+            "Pink",
+            "DarkPink",
+            "Violet",
+            "DarkViolet",
+            "PastelBlue",
+            "PastelGreen",
+            "PastelOrange",
+            "PastelPurple",
+            "PastelRed",
+            "PastelCyan",
+            "PastelPink",
+            "PastelYellow",
+            "PastelMagenta",
+            "PastelLavender",
+        ]
+        .iter()
+        .map(|name| serde_json::from_str(&format!("\"{name}\"")).expect("a color variant"))
+        .collect()
+    }
+
+    #[test]
+    fn every_variant_is_listed() {
+        // The swatch rows offer 30 fixed colors, and System Accent besides.
+        assert_eq!(all().len(), 31);
+    }
+
+    /// A swatch's tooltip is its label, so two colors sharing one would be
+    /// told apart by nothing but their shade.
+    #[test]
+    fn every_color_has_its_own_label() {
+        let labels: std::collections::BTreeSet<&str> =
+            all().iter().map(VisualizationColor::pretty_name).collect();
+        assert_eq!(labels.len(), all().len());
+    }
+
+    #[test]
+    fn every_fixed_color_is_its_own_valid_shade() {
+        let mut seen = Vec::new();
+        for color in all() {
+            let rgb = color.to_rgb();
+            assert!(
+                rgb.iter().all(|c| (0.0..=1.0).contains(c)),
+                "{color:?} is out of range: {rgb:?}"
+            );
+            assert_eq!(color.to_color(), Color::from_rgb(rgb[0], rgb[1], rgb[2]));
+            if color != VisualizationColor::SystemAccent {
+                assert!(!seen.contains(&rgb), "{color:?} repeats a shade");
+                seen.push(rgb);
+            }
+        }
+    }
+
+    /// System Accent is the theme's accent, whatever it is; every other
+    /// color is the same in any theme.
+    #[test]
+    fn only_system_accent_follows_the_theme() {
+        let mut theme = Theme::dark_default();
+        theme.accent.base.color.red = 0.1;
+        theme.accent.base.color.green = 0.2;
+        theme.accent.base.color.blue = 0.9;
+
+        assert_eq!(
+            VisualizationColor::SystemAccent.to_color_with_theme(&theme),
+            Color::from_rgb(0.1, 0.2, 0.9)
+        );
+        for color in all()
+            .into_iter()
+            .filter(|c| *c != VisualizationColor::SystemAccent)
+        {
+            assert_eq!(color.to_color_with_theme(&theme), color.to_color());
+            assert_eq!(
+                color.to_color_with_theme(&Theme::light_default()),
+                color.to_color()
+            );
+        }
+    }
+
+    #[test]
+    fn the_light_and_dark_colors_are_set_apart() {
+        let mut colors = VisualizationColorConfig::default();
+        assert_eq!(colors.get_color(false), VisualizationColor::SystemAccent);
+        assert_eq!(colors.get_color(true), VisualizationColor::SystemAccent);
+
+        colors.set_color(VisualizationColor::Blue, false);
+        colors.set_color(VisualizationColor::PastelRed, true);
+
+        assert_eq!(colors.get_color(false), VisualizationColor::Blue);
+        assert_eq!(colors.get_color(true), VisualizationColor::PastelRed);
+        assert_eq!(
+            colors.get_color_with_theme(true, &Theme::dark_default()),
+            VisualizationColor::PastelRed.to_color()
+        );
     }
 }

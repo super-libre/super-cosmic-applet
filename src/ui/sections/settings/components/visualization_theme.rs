@@ -244,3 +244,185 @@ fn create_theme_color_section<'a>(
     .padding([8, 48])
     .apply(Element::from)
 }
+
+#[cfg(test)]
+mod selector_tests {
+    //! The per-product selectors, on a real applet: each opens its list, and
+    //! sets the product whose tab is showing, never the other one.
+    use crate::app::{Message, testing::TestApplet};
+    use crate::models::theme::{VisualizationColor, VisualizationTheme, WorkingAnimationTheme};
+    use crate::products::Product::{self, Stt, Tts};
+    use crate::ui::simulator::{Simulator, every_click, in_popup, popup_texts, where_to_send};
+    use cosmic::iced::Point;
+
+    /// Both products installed and connected, with `tab`'s settings showing.
+    fn on_tab(tab: Product) -> TestApplet {
+        let mut applet = TestApplet::new(&[Stt, Tts]);
+        applet.connect(Stt).connect(Tts);
+        applet.send(Message::SelectSettingsTab(tab));
+        applet
+    }
+
+    fn shows(applet: &TestApplet, text: &str) -> bool {
+        popup_texts(applet).iter().any(|t| t == text)
+    }
+
+    fn open(applet: &mut TestApplet, list: &str) {
+        in_popup(applet, |ui| {
+            ui.click(list);
+        });
+    }
+
+    /// Pick the light (`dark` false) or dark half of "Configure Colors For:".
+    fn configure_for(applet: &mut TestApplet, dark: bool) {
+        in_popup(applet, |ui| {
+            let control = ui.control_below("Configure Colors For:");
+            let fraction = if dark { 0.75 } else { 0.25 };
+            ui.click_at(Point::new(
+                control.x + control.width * fraction,
+                control.center_y(),
+            ));
+        });
+    }
+
+    #[test]
+    fn the_style_list_sets_the_tabs_product_only() {
+        let mut applet = on_tab(Tts);
+        assert!(!shows(&applet, "Pulse"), "the list starts closed");
+
+        open(&mut applet, "Visualization Style");
+        for option in ["Pulse", "Equalizer", "Waveform"] {
+            assert!(shows(&applet, option), "{option:?} missing");
+        }
+        let sent = in_popup(&mut applet, |ui| {
+            ui.click("Waveform");
+        });
+
+        assert_eq!(sent, ["SetVisualizationTheme(Tts, Waveform)"]);
+        let visualization = &applet.config().visualization;
+        assert_eq!(visualization.tts.theme, VisualizationTheme::Waveform);
+        assert_eq!(visualization.stt.theme, VisualizationTheme::default());
+        assert_eq!(
+            applet.saved().expect("saved").visualization.tts.theme,
+            VisualizationTheme::Waveform
+        );
+        assert!(!shows(&applet, "Pulse"), "picking closes the list");
+        assert!(shows(&applet, "Waveform"), "the head shows the pick");
+    }
+
+    #[test]
+    fn the_loading_animation_list_sets_the_tabs_product_only() {
+        let mut applet = on_tab(Stt);
+
+        open(&mut applet, "Loading Animation");
+        let sent = in_popup(&mut applet, |ui| {
+            ui.click("Comet");
+        });
+
+        assert_eq!(sent, ["SetWorkingAnimation(Stt, Comet)"]);
+        let visualization = &applet.config().visualization;
+        assert_eq!(
+            visualization.stt.working_animation,
+            WorkingAnimationTheme::Comet
+        );
+        assert_eq!(
+            visualization.tts.working_animation,
+            WorkingAnimationTheme::default()
+        );
+    }
+
+    #[test]
+    fn a_list_closes_from_its_head_or_when_another_opens() {
+        let mut applet = on_tab(Stt);
+        open(&mut applet, "Visualization Style");
+        open(&mut applet, "Visualization Style");
+        assert!(!shows(&applet, "Pulse"), "its head closes it");
+
+        open(&mut applet, "Visualization Style");
+        open(&mut applet, "Loading Animation");
+        assert!(shows(&applet, "Comet"));
+        assert!(!shows(&applet, "Pulse"), "opening another closes it");
+    }
+
+    /// The swatches and the accent button all set the product on show, for
+    /// whichever theme is being configured.
+    #[test]
+    fn every_color_sets_the_tabs_product() {
+        let mut applet = on_tab(Tts);
+        open(&mut applet, "Visualization Color");
+        for text in [
+            "Configure Colors For:",
+            "Default Colors",
+            "System accent color",
+            "Custom Colors",
+        ] {
+            assert!(shows(&applet, text), "{text:?} missing");
+        }
+
+        let colors: Vec<String> = every_click(|| applet.popup())
+            .into_iter()
+            .filter(|sent| sent.starts_with("SetVisualizationColor("))
+            .collect();
+
+        assert_eq!(colors.len(), 31, "the accent and 30 swatches: {colors:?}");
+        assert!(
+            colors
+                .iter()
+                .all(|sent| sent.starts_with("SetVisualizationColor(Tts, ")),
+            "{colors:?}"
+        );
+    }
+
+    #[test]
+    fn the_light_or_dark_choice_picks_the_theme_a_color_sets() {
+        let mut applet = on_tab(Stt);
+        open(&mut applet, "Visualization Color");
+        for dark in [false, true] {
+            configure_for(&mut applet, dark);
+            let sent = in_popup(&mut applet, |ui| {
+                ui.click("System accent color");
+            });
+            assert_eq!(
+                sent,
+                [format!("SetVisualizationColor(Stt, SystemAccent, {dark})")]
+            );
+        }
+    }
+
+    #[test]
+    fn a_picked_swatch_is_saved_for_that_theme_and_drawn_picked() {
+        let mut applet = on_tab(Stt);
+        open(&mut applet, "Visualization Color");
+        configure_for(&mut applet, true);
+        let before = Simulator::new(applet.popup()).screenshot();
+
+        let swatch = where_to_send(|| applet.popup(), "SetVisualizationColor(Stt, Blue, true)")
+            .expect("a Blue swatch");
+        in_popup(&mut applet, |ui| {
+            ui.click_at(swatch);
+        });
+
+        let colors = &applet.config().visualization.stt.colors;
+        assert_eq!(colors.dark_colors, VisualizationColor::Blue);
+        assert_eq!(colors.light_colors, VisualizationColor::SystemAccent);
+        assert_eq!(
+            applet.config().visualization.tts.colors.dark_colors,
+            VisualizationColor::SystemAccent
+        );
+        assert_eq!(
+            applet
+                .saved()
+                .expect("saved")
+                .visualization
+                .stt
+                .colors
+                .dark_colors,
+            VisualizationColor::Blue
+        );
+        assert_ne!(
+            Simulator::new(applet.popup()).screenshot(),
+            before,
+            "the picked swatch looks the same as before"
+        );
+    }
+}

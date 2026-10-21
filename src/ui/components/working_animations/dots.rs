@@ -61,3 +61,86 @@ impl WorkingAnimationRenderer for DotsAnimation {
         }
     }
 }
+
+#[cfg(test)]
+mod dots_tests {
+    //! The dots, drawn: three of them, a 13.6px gap apart at this width,
+    //! centred on the strip, pulsing in turn from left to right.
+    use std::f32::consts::FRAC_PI_2;
+
+    use super::DotsAnimation;
+    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::ui::components::visualizations::test_support::{
+        HEIGHT, Pixels, WIDTH, colors, render, render_working, theme,
+    };
+    use crate::ui::components::working_animations::{WorkingAnimationRenderer, WorkingDrawContext};
+
+    fn draw(elapsed_ms: f32, side: &VisualizationSide) -> Pixels {
+        render_working(
+            WorkingAnimationTheme::Dots,
+            elapsed_ms,
+            side,
+            VisualizationColor::White,
+        )
+    }
+
+    /// Unlike the wave animations, the dots don't split across the two side
+    /// applets: each draws the whole loader.
+    #[test]
+    fn every_side_draws_the_same_dots() {
+        let full = draw(500.0, &VisualizationSide::Full);
+        for side in [VisualizationSide::Left, VisualizationSide::Right] {
+            assert_eq!(full.difference(&draw(500.0, &side)), 0, "{side:?}");
+        }
+    }
+
+    #[test]
+    fn the_dots_are_centred_on_the_strip() {
+        let (left, top, right, bottom) = draw(500.0, &VisualizationSide::Full)
+            .painted_box()
+            .expect("dots");
+        assert!(
+            (left + right - (WIDTH as i32 - 1)).abs() <= 2,
+            "{left}..{right}"
+        );
+        assert!(
+            (top + bottom - (HEIGHT as i32 - 1)).abs() <= 2,
+            "{top}..{bottom}"
+        );
+    }
+
+    /// Each dot peaks a little after the one to its left.
+    #[test]
+    fn the_dots_pulse_in_turn_from_left_to_right() {
+        let centre = |pixels: &Pixels, dot: i32| pixels.alpha(80 + (dot - 1) * 14, 20);
+        // The first dot's peak, then the last's.
+        let first = draw(FRAC_PI_2 / 0.004, &VisualizationSide::Full);
+        let last = draw((FRAC_PI_2 + 1.2) / 0.004, &VisualizationSide::Full);
+
+        assert!(centre(&first, 0) > centre(&first, 1) && centre(&first, 1) > centre(&first, 2));
+        assert!(centre(&last, 2) > centre(&last, 1) && centre(&last, 1) > centre(&last, 0));
+    }
+
+    #[test]
+    fn a_strip_with_no_width_draws_nothing() {
+        let theme = theme(true);
+        let colors = colors(VisualizationColor::White);
+        let pixels = render(WIDTH, HEIGHT, |frame| {
+            DotsAnimation.draw(
+                frame,
+                &WorkingDrawContext {
+                    bounds: cosmic::iced::core::Rectangle::new(
+                        cosmic::iced::Point::ORIGIN,
+                        cosmic::iced::Size::new(0.0, 40.0),
+                    ),
+                    elapsed_ms: 500.0,
+                    color_config: &colors,
+                    is_dark: true,
+                    cosmic_theme: theme.cosmic(),
+                    side: &VisualizationSide::Full,
+                },
+            );
+        });
+        assert_eq!(pixels.painted(), 0);
+    }
+}

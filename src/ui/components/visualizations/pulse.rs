@@ -101,3 +101,92 @@ impl VisualizationRenderer for PulseVisualization {
         );
     }
 }
+
+#[cfg(test)]
+mod pulse_tests {
+    //! The pulse, drawn: one pill across the strip, 2px in from every edge,
+    //! thickening with the energy in the vocal bands.
+    use super::PulseVisualization;
+    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::ui::components::visualizations::test_support::{
+        HEIGHT, Pixels, bands, flat_bands, render_visualization,
+    };
+    use super_engine_protocol::FrequencyData;
+
+    fn draw(data: &FrequencyData) -> Pixels {
+        render_visualization(
+            &PulseVisualization::default(),
+            data,
+            &VisualizationSide::Full,
+            VisualizationColor::White,
+        )
+    }
+
+    fn thickness(pixels: &Pixels) -> i32 {
+        let (_, top, _, bottom) = pixels.painted_box().expect("a line");
+        bottom - top + 1
+    }
+
+    #[test]
+    fn silence_draws_a_thin_line_across_the_strip() {
+        let pixels = draw(&flat_bands(32, 0.0));
+        let (left, top, right, bottom) = pixels.painted_box().expect("a line");
+        assert!(left <= 3 && right >= 156, "line spans {left}..{right}");
+        assert!(
+            bottom - top <= 2,
+            "a silent line {} rows thick",
+            bottom - top + 1
+        );
+        assert!(
+            (top + bottom - (HEIGHT as i32 - 1)).abs() <= 1,
+            "off centre"
+        );
+    }
+
+    #[test]
+    fn the_line_thickens_with_vocal_energy_and_stays_centred() {
+        let mut previous = 0;
+        for level in [0.0, 1.0, 2.0, 3.0] {
+            let pixels = draw(&flat_bands(32, level));
+            let thick = thickness(&pixels);
+            assert!(thick > previous, "level {level}: {thick} rows");
+            let (_, top, _, bottom) = pixels.painted_box().unwrap();
+            assert!(
+                (top + bottom - (HEIGHT as i32 - 1)).abs() <= 1,
+                "level {level} off centre"
+            );
+            previous = thick;
+        }
+        // At its fullest the line takes 80% of the 36 rows inside the margin.
+        assert!((28..=31).contains(&previous), "{previous} rows at full");
+    }
+
+    /// Only bands 8 to 23, the voice's, move the pulse: a hum below them or
+    /// hiss above leaves it resting.
+    #[test]
+    fn only_the_vocal_bands_count() {
+        let outside: Vec<f32> = (0..32)
+            .map(|i| if (8..24).contains(&i) { 0.0 } else { 3.0 })
+            .collect();
+        let inside: Vec<f32> = (0..32)
+            .map(|i| if (8..24).contains(&i) { 3.0 } else { 0.0 })
+            .collect();
+
+        assert_eq!(
+            thickness(&draw(&bands(outside))),
+            thickness(&draw(&flat_bands(32, 0.0)))
+        );
+        assert!(thickness(&draw(&bands(inside))) >= 28);
+    }
+
+    /// Without bands to read, the pulse follows the total energy instead.
+    #[test]
+    fn without_bands_it_follows_the_total_energy() {
+        let loud = FrequencyData {
+            bands: Vec::new(),
+            total_energy: 3.0,
+            ..FrequencyData::default()
+        };
+        assert!(thickness(&draw(&loud)) >= 28);
+    }
+}

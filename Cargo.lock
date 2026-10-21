@@ -4930,6 +4930,8 @@ dependencies = [
  "libc",
  "libcosmic",
  "log",
+ "notify",
+ "ron",
  "serde",
  "serde_json",
  "super-engine-client",
@@ -4937,7 +4939,6 @@ dependencies = [
  "super-stt-registry-types",
  "super-tts-registry-types",
  "tokio",
- "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
