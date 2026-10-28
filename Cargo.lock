@@ -4922,7 +4922,7 @@ dependencies = [
 
 [[package]]
 name = "super-cosmic-applet"
-version = "0.1.0-beta.3"
+version = "0.1.0"
 dependencies = [
  "base64",
  "clap",
