@@ -4926,6 +4926,7 @@ version = "0.1.0-beta.2"
 dependencies = [
  "base64",
  "clap",
+ "env_logger",
  "futures-util",
  "libc",
  "libcosmic",
