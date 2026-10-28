@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use clap::{Arg, Command, ValueEnum};
-use super_cosmic_applet::{VERSION, VisualizationSide};
+use super_cosmic_applet::{VERSION, VisualizationSide, init_logging};
 
 #[derive(ValueEnum, Clone, Debug)]
 enum Side {
@@ -20,7 +20,7 @@ impl From<Side> for VisualizationSide {
 }
 
 fn main() -> cosmic::iced::Result {
-    super_engine_protocol::logging::init();
+    init_logging();
     log::info!("Starting Super Applet {VERSION}");
 
     let matches = Command::new("super-cosmic-applet")

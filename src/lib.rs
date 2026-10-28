@@ -2,13 +2,15 @@
 mod app;
 mod config;
 mod daemon;
+mod logging;
 mod models;
 mod products;
 mod ui;
 mod util;
 
-// Types needed by the binary entry point (`main.rs`).
+// Items needed by the binary entry point (`main.rs`).
 pub use app::SuperApplet;
+pub use logging::init as init_logging;
 pub use models::theme::VisualizationSide;
 
 // Crate version/repository sourced from Cargo.toml for UI display and
