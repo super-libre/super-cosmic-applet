@@ -61,15 +61,15 @@
     # below to a commit that pins the same engine.
     super-engine-client = {
         git = "https://github.com/super-libre/super-engine",
-        rev = "d1bbfc9132924da689b8c70a747abf63f3f7daaf",
+        rev = "8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5",
     }
     super-engine-protocol = {
         git = "https://github.com/super-libre/super-engine",
-        rev = "d1bbfc9132924da689b8c70a747abf63f3f7daaf",
+        rev = "8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5",
     }
     super-voice-registry-types = {
         git = "https://github.com/jorge-menjivar/super-stt",
-        rev = "b4840747faa2c80c518d1bbb5ba0e3a699e110f5",
+        rev = "8d28f0e96892b641ab17420a36d13f4464a0af57",
     }
     tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
 
