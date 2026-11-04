@@ -171,7 +171,7 @@ mod panel_tests {
     //! error icon.
     use crate::app::testing::TestApplet;
     use crate::app::{DaemonMessage, Message};
-    use crate::products::Product::{Stt, Tts};
+    use crate::features::Feature::{Stt, Tts};
     use crate::ui::simulator::{Simulator, draws_anything, every_click};
     use cosmic::iced::Size;
 

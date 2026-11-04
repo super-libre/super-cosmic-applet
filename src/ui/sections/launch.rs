@@ -47,7 +47,7 @@ pub fn create_launch_section(links: &[ProductLink]) -> Element<'static, Message>
 mod launch_tests {
     use super::create_launch_section;
     use crate::app::ProductLink;
-    use crate::products::Product::{Stt, Tts};
+    use crate::features::Feature::{Stt, Tts};
     use crate::ui::simulator::{Simulator, every_click};
 
     #[test]

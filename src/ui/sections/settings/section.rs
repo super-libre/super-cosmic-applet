@@ -12,7 +12,7 @@ use cosmic::{
 
 use crate::{
     app::Message,
-    products::Product,
+    features::Feature,
     ui::{
         components::tabs::product_tabs,
         sections::settings::components::visualization_theme::{
@@ -28,7 +28,7 @@ use crate::{
 /// below them, under a tab per installed product, showing `tab`'s.
 pub fn create_applet_settings_section<'a>(
     params: &PopupContentParams<'a>,
-    tab: Product,
+    tab: Feature,
 ) -> Element<'a, Message> {
     let PopupContentParams {
         config,
@@ -122,11 +122,11 @@ pub fn create_applet_settings_section<'a>(
 /// no tab bar.
 fn create_product_settings<'a>(
     params: &PopupContentParams<'a>,
-    tab: Product,
+    tab: Feature,
 ) -> Element<'a, Message> {
     let spacing = theme::active().cosmic().spacing;
     let look = params.config.visualization.product(tab);
-    let installed: Vec<Product> = params
+    let installed: Vec<Feature> = params
         .links
         .iter()
         .filter(|l| l.installed)
@@ -163,8 +163,8 @@ mod settings_section_tests {
     //! The settings part of the popup, on a real applet: what shows when, and
     //! that each control's click reaches the saved settings.
     use crate::app::testing::TestApplet;
+    use crate::features::Feature::{Stt, Tts};
     use crate::models::theme::IconAlignment;
-    use crate::products::Product::{Stt, Tts};
     use crate::ui::simulator::{in_popup, popup_texts};
     use cosmic::iced::Point;
 

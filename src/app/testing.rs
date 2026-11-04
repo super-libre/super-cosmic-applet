@@ -12,8 +12,8 @@ use cosmic::Element;
 
 use super::{DaemonMessage, Message, ProductLink, SuperApplet};
 use crate::config::{AppletConfig, SETTINGS_FILE};
+use crate::features::Feature;
 use crate::models::theme::VisualizationSide;
-use crate::products::Product;
 
 pub(crate) struct TestApplet {
     pub(crate) applet: SuperApplet,
@@ -23,11 +23,11 @@ pub(crate) struct TestApplet {
 impl TestApplet {
     /// An applet on the full side, with `installed` installed and none of
     /// their daemons connected yet.
-    pub(crate) fn new(installed: &[Product]) -> Self {
+    pub(crate) fn new(installed: &[Feature]) -> Self {
         Self::with_side(installed, VisualizationSide::Full)
     }
 
-    pub(crate) fn with_side(installed: &[Product], side: VisualizationSide) -> Self {
+    pub(crate) fn with_side(installed: &[Feature], side: VisualizationSide) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "super-cosmic-applet-test-{}-{}",
@@ -52,15 +52,15 @@ impl TestApplet {
     }
 
     /// Send `message` from `product`'s daemon.
-    pub(crate) fn daemon(&mut self, product: Product, message: DaemonMessage) -> &mut Self {
+    pub(crate) fn daemon(&mut self, product: Feature, message: DaemonMessage) -> &mut Self {
         self.send(Message::Daemon(product, message))
     }
 
-    pub(crate) fn connect(&mut self, product: Product) -> &mut Self {
+    pub(crate) fn connect(&mut self, product: Feature) -> &mut Self {
         self.daemon(product, DaemonMessage::Connected)
     }
 
-    pub(crate) fn link(&self, product: Product) -> &ProductLink {
+    pub(crate) fn link(&self, product: Feature) -> &ProductLink {
         self.applet.link(product)
     }
 
@@ -89,16 +89,16 @@ impl Drop for TestApplet {
     }
 }
 
-/// [`Product::is_installed`], answering for the products in `installed`. A
+/// [`Feature::is_installed`], answering for the products in `installed`. A
 /// plain function, as the applet keeps one, so one per case.
-fn installed_check(installed: &[Product]) -> fn(Product) -> bool {
+fn installed_check(installed: &[Feature]) -> fn(Feature) -> bool {
     match (
-        installed.contains(&Product::Stt),
-        installed.contains(&Product::Tts),
+        installed.contains(&Feature::Stt),
+        installed.contains(&Feature::Tts),
     ) {
         (true, true) => |_| true,
-        (true, false) => |p| p == Product::Stt,
-        (false, true) => |p| p == Product::Tts,
+        (true, false) => |p| p == Feature::Stt,
+        (false, true) => |p| p == Feature::Tts,
         (false, false) => |_| false,
     }
 }

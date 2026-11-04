@@ -2,35 +2,35 @@
 use cosmic::{iced::window, widget::segmented_button::Entity};
 
 use crate::config::AppletConfig;
+use crate::features::Feature;
 use crate::models::{
     state::IsOpen,
     theme::{VisualizationColor, VisualizationTheme, WorkingAnimationTheme},
 };
-use crate::products::Product;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     TogglePopup,
     CloseRequested(window::Id),
     /// Something from, or about, one product's daemon.
-    Daemon(Product, DaemonMessage),
+    Daemon(Feature, DaemonMessage),
     /// The periodic liveness ping of every installed product's daemon.
     PingTimeout,
     /// Both products are active: show the other one's visualization.
     AlternateFront,
     OpenGitHub,
-    LaunchApp(Product),
+    LaunchApp(Feature),
     RevealerToggle(IsOpen),
     /// Show this product's tab of the per-product settings.
-    SelectSettingsTab(Product),
-    SetVisualizationTheme(Product, VisualizationTheme),
+    SelectSettingsTab(Feature),
+    SetVisualizationTheme(Feature, VisualizationTheme),
     /// Pick the working animation style.
-    SetWorkingAnimation(Product, WorkingAnimationTheme),
+    SetWorkingAnimation(Feature, WorkingAnimationTheme),
     SetAppletWidth(u32),
     SetShowIcon(bool),
     SetIconAlignmentEntity(Entity),
     SetShowVisualizations(bool),
-    SetVisualizationColor(Product, VisualizationColor, bool), // Color and is_dark flag
+    SetVisualizationColor(Feature, VisualizationColor, bool), // Color and is_dark flag
     SetColorThemeEntity(Entity), // Theme selector for color configuration
     /// The settings file changed: another applet, or a hand edit, saved it.
     SettingsChanged(AppletConfig),
@@ -51,15 +51,15 @@ pub enum DaemonMessage {
     /// and restarts the `/events` subscription so the daemon shows a fresh
     /// consent dialog.
     RetryAuthorization,
-    /// Super STT's `recording_state`.
+    /// Speech to text's `recording_state`.
     RecordingState(bool),
-    /// Super STT's `transcribing_started`: decoding of the captured audio began.
+    /// Speech to text's `transcribing_started`: decoding of the captured audio began.
     TranscribingStarted,
-    /// Super STT's `transcribing_stopped`: decode and typing are over.
+    /// Speech to text's `transcribing_stopped`: decode and typing are over.
     TranscribingStopped,
-    /// Super TTS's `speaking_state`.
+    /// Text to speech's `speaking_state`.
     SpeakingState(bool),
-    /// Super TTS's `speech_progress`.
+    /// Text to speech's `speech_progress`.
     SpeechProgress {
         spoken_ms: u64,
     },

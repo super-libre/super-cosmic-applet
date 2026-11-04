@@ -50,30 +50,26 @@
     ron = "0.12.2"
     serde = { version = "1.0.219", features = ["derive"] }
     serde_json = "1.0.149"
-    # The applet talks to both daemons through super-engine's client, and takes
-    # each product's names (its socket, keyring service, scopes and topics) from
-    # the product's own registry types crate.
+    # The applet talks to the daemon through super-engine's client, and takes
+    # the daemon's names (its socket, scopes and topics) from Super Voice's
+    # registry types crate.
     #
-    # All three must name the SAME super-engine rev: the product crates depend on
-    # super-engine-protocol at the rev their workspace pins, and a ProductSpec
+    # Both must name the SAME super-engine rev: the product crate depends on
+    # super-engine-protocol at the rev its workspace pins, and a ProductSpec
     # from one rev is a different type from a ProductSpec of another. Bump the
-    # engine here only together with both products' pins, and the product revs
-    # below to commits that pin the same engine.
+    # engine here only together with super-stt's pin, and the super-stt rev
+    # below to a commit that pins the same engine.
     super-engine-client = {
         git = "https://github.com/super-libre/super-engine",
-        rev = "7010eed104753005ef402c7fa5af24b2b9c47a8f",
+        rev = "d1bbfc9132924da689b8c70a747abf63f3f7daaf",
     }
     super-engine-protocol = {
         git = "https://github.com/super-libre/super-engine",
-        rev = "7010eed104753005ef402c7fa5af24b2b9c47a8f",
+        rev = "d1bbfc9132924da689b8c70a747abf63f3f7daaf",
     }
-    super-stt-registry-types = {
+    super-voice-registry-types = {
         git = "https://github.com/jorge-menjivar/super-stt",
-        rev = "42ab3ee96c5a93a311daaff326cb2879daa3f925",
-    }
-    super-tts-registry-types = {
-        git = "https://github.com/super-libre/super-tts",
-        rev = "1e3dc374915d403ba143325ccbab68631e40499d",
+        rev = "b4840747faa2c80c518d1bbb5ba0e3a699e110f5",
     }
     tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
 

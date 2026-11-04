@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
     app::Message,
+    features::Feature,
     models::state::IsOpen,
     models::theme::{
         VisualizationColor, VisualizationColorConfig, VisualizationTheme, WorkingAnimationTheme,
     },
-    products::Product,
     ui::components::{
         color_buttons::{create_color_button, create_system_accent_button},
         common::{revealer, revealer_head},
@@ -23,7 +23,7 @@ use cosmic::{
 };
 
 pub fn create_visualization_theme_selector<'a>(
-    product: Product,
+    product: Feature,
     selected_theme: &VisualizationTheme,
     is_open: &IsOpen,
 ) -> Element<'a, Message> {
@@ -56,7 +56,7 @@ pub fn create_visualization_theme_selector<'a>(
 /// [`create_visualization_theme_selector`]; the chosen style drives the
 /// animation shown while `product` transcribes or synthesizes.
 pub fn create_working_animation_selector<'a>(
-    product: Product,
+    product: Feature,
     selected: WorkingAnimationTheme,
     is_open: &IsOpen,
 ) -> Element<'a, Message> {
@@ -83,7 +83,7 @@ pub fn create_working_animation_selector<'a>(
 }
 
 pub fn create_visualization_color_selector<'a>(
-    product: Product,
+    product: Feature,
     color_config: &VisualizationColorConfig,
     is_open: &IsOpen,
     theme_selector_model: &'a SingleSelectModel,
@@ -131,7 +131,7 @@ pub fn create_visualization_color_selector<'a>(
 }
 
 fn create_colors_row<'a>(
-    product: Product,
+    product: Feature,
     colors: &[VisualizationColor],
     selected_theme_is_dark: bool,
     current_selected_color: &VisualizationColor,
@@ -153,7 +153,7 @@ fn create_colors_row<'a>(
 }
 
 fn create_theme_color_section<'a>(
-    product: Product,
+    product: Feature,
     selected_theme_is_dark: bool,
     current_selected_color: &VisualizationColor,
 ) -> Element<'a, Message> {
@@ -250,13 +250,13 @@ mod selector_tests {
     //! The per-product selectors, on a real applet: each opens its list, and
     //! sets the product whose tab is showing, never the other one.
     use crate::app::{Message, testing::TestApplet};
+    use crate::features::Feature::{self, Stt, Tts};
     use crate::models::theme::{VisualizationColor, VisualizationTheme, WorkingAnimationTheme};
-    use crate::products::Product::{self, Stt, Tts};
     use crate::ui::simulator::{Simulator, every_click, in_popup, popup_texts, where_to_send};
     use cosmic::iced::Point;
 
     /// Both products installed and connected, with `tab`'s settings showing.
-    fn on_tab(tab: Product) -> TestApplet {
+    fn on_tab(tab: Feature) -> TestApplet {
         let mut applet = TestApplet::new(&[Stt, Tts]);
         applet.connect(Stt).connect(Tts);
         applet.send(Message::SelectSettingsTab(tab));

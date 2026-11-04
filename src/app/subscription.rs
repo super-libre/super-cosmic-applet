@@ -16,17 +16,17 @@ use super_engine_client::widget_subscription::{
 
 use crate::app::{DaemonMessage, Message};
 use crate::config::{AppletConfig, SETTINGS_FILE};
-use crate::products::{APP_NAME, Product};
+use crate::features::{APP_NAME, Feature};
 use crate::util::f64_to_f32;
 
 /// Interval at which the applet pings each daemon to check its health.
 pub(super) const PING_INTERVAL_SECS: u64 = 5;
 
 /// Keys `Subscription::run_with`, so a product's subscription restarts when
-/// its counter changes and the two products' never collide.
+/// its counter changes and the two features' never collide.
 #[derive(Hash)]
 pub(super) struct EventsSubscriptionId {
-    pub(super) product: Product,
+    pub(super) product: Feature,
     pub(super) restart_counter: u64,
 }
 
@@ -186,7 +186,9 @@ fn widget_event_to_message(evt: WidgetEvent) -> DaemonMessage {
         "speech_progress" => DaemonMessage::SpeechProgress {
             spoken_ms: p.get("spoken_ms").and_then(Value::as_u64).unwrap_or(0),
         },
-        "frequency_bands" => DaemonMessage::FrequencyBands {
+        // The microphone's level for dictation, the speakers' for speech; each
+        // feature's subscription asks for its own.
+        "frequency_bands" | "playback_frequency_bands" => DaemonMessage::FrequencyBands {
             bands: b64_to_f32_vec(p.get("bands_b64").and_then(Value::as_str)),
             total_energy: f64_to_f32(p.get("total_energy").and_then(Value::as_f64).unwrap_or(0.0)),
         },

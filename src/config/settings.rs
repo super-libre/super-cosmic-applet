@@ -4,10 +4,10 @@
 //! the file (`app::subscription::watch_settings`), so a change made in one
 //! popup shows in all of them.
 use super::lenient::variant_or_default;
+use crate::features::{CLIENT_NAME, Feature};
 use crate::models::theme::{
     IconAlignment, VisualizationColorConfig, VisualizationTheme, WorkingAnimationTheme,
 };
-use crate::products::{CLIENT_NAME, Product};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,24 +34,24 @@ pub struct AppletConfig {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VisualizationConfig {
-    /// How the panel draws Super STT's recording and transcribing.
+    /// How the panel draws speech to text's recording and transcribing.
     pub stt: ProductVisualization,
-    /// How the panel draws Super TTS's speech and synthesizing.
+    /// How the panel draws text to speech's speech and synthesizing.
     pub tts: ProductVisualization,
 }
 
 impl VisualizationConfig {
-    pub fn product(&self, product: Product) -> &ProductVisualization {
+    pub fn product(&self, product: Feature) -> &ProductVisualization {
         match product {
-            Product::Stt => &self.stt,
-            Product::Tts => &self.tts,
+            Feature::Stt => &self.stt,
+            Feature::Tts => &self.tts,
         }
     }
 
-    pub fn product_mut(&mut self, product: Product) -> &mut ProductVisualization {
+    pub fn product_mut(&mut self, product: Feature) -> &mut ProductVisualization {
         match product {
-            Product::Stt => &mut self.stt,
-            Product::Tts => &mut self.tts,
+            Feature::Stt => &mut self.stt,
+            Feature::Tts => &mut self.tts,
         }
     }
 }
@@ -62,8 +62,8 @@ impl VisualizationConfig {
 pub struct ProductVisualization {
     #[serde(default, deserialize_with = "variant_or_default")]
     pub theme: VisualizationTheme,
-    /// Animation shown while the product works: transcribing for Super STT,
-    /// synthesizing the first audio for Super TTS.
+    /// Animation shown while the product works: transcribing for speech to text,
+    /// synthesizing the first audio for text to speech.
     #[serde(default, deserialize_with = "variant_or_default")]
     pub working_animation: WorkingAnimationTheme,
     #[serde(default)]
@@ -97,7 +97,7 @@ impl AppletConfig {
     /// The applet's own config directory, `$XDG_CONFIG_HOME/super-cosmic-applet`,
     /// beside the products' own.
     pub fn config_dir() -> PathBuf {
-        super_engine_protocol::paths::config_dir(Product::Stt.spec()).with_file_name(CLIENT_NAME)
+        super_engine_protocol::paths::config_dir(Feature::Stt.spec()).with_file_name(CLIENT_NAME)
     }
 
     /// Parse `settings.ron`, falling back to defaults on a parse error. Pure
@@ -301,8 +301,8 @@ mod load_and_save_tests {
     //! The settings on disk, in a scratch directory standing in for
     //! `~/.config/super-cosmic-applet`.
     use super::{AppletConfig, SETTINGS_FILE};
+    use crate::features::Feature;
     use crate::models::theme::VisualizationTheme;
-    use crate::products::Product;
     use std::fs;
     use std::path::PathBuf;
 
@@ -441,10 +441,10 @@ mod load_and_save_tests {
     #[test]
     fn each_product_reads_and_writes_its_own_settings() {
         let mut config = AppletConfig::default();
-        config.visualization.product_mut(Product::Tts).theme = VisualizationTheme::Pulse;
+        config.visualization.product_mut(Feature::Tts).theme = VisualizationTheme::Pulse;
 
         assert_eq!(
-            config.visualization.product(Product::Tts).theme,
+            config.visualization.product(Feature::Tts).theme,
             VisualizationTheme::Pulse
         );
         assert_eq!(config.visualization.tts.theme, VisualizationTheme::Pulse);
@@ -452,7 +452,7 @@ mod load_and_save_tests {
             config.visualization.stt,
             AppletConfig::default().visualization.stt
         );
-        config.visualization.product_mut(Product::Stt).theme = VisualizationTheme::Waveform;
+        config.visualization.product_mut(Feature::Stt).theme = VisualizationTheme::Waveform;
         assert_eq!(config.visualization.stt.theme, VisualizationTheme::Waveform);
     }
 
@@ -466,7 +466,7 @@ mod load_and_save_tests {
         );
         assert_eq!(
             dir.parent(),
-            super_engine_protocol::paths::config_dir(Product::Stt.spec()).parent()
+            super_engine_protocol::paths::config_dir(Feature::Stt.spec()).parent()
         );
     }
 }

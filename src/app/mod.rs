@@ -21,9 +21,9 @@ pub use messages::*;
 
 use crate::config::AppletConfig;
 use crate::daemon::RetryStrategy;
+use crate::features::Feature;
 use crate::models::state::{DaemonConnectionState, IsOpen, Phase};
 use crate::models::theme::VisualizationSide;
-use crate::products::Product;
 use crate::ui::components::sound_visualization::VisualizationComponent;
 use crate::ui::components::working_animation_component::WorkingAnimationComponent;
 use subscription::{EventsSubscriptionId, PING_INTERVAL_SECS, events_subscription, watch_settings};
@@ -34,7 +34,7 @@ const ALTERNATE_SECS: u64 = 3;
 
 /// The applet's link to one product's daemon.
 pub struct ProductLink {
-    pub product: Product,
+    pub product: Feature,
     /// Whether the product is installed. A product that isn't gets no
     /// subscription, no pings and no status line. Checked again on every
     /// ping, so a product installed later shows up without a restart.
@@ -50,7 +50,7 @@ pub struct ProductLink {
 }
 
 impl ProductLink {
-    pub(crate) fn new(product: Product, installed: bool) -> Self {
+    pub(crate) fn new(product: Feature, installed: bool) -> Self {
         Self {
             product,
             installed,
@@ -58,8 +58,8 @@ impl ProductLink {
             retry_strategy: RetryStrategy::for_initial_connection(),
             restart_counter: 0,
             phase: match product {
-                Product::Stt => Phase::Recording(crate::models::state::RecordingPhase::default()),
-                Product::Tts => Phase::Speech(crate::models::state::SpeechPhase::default()),
+                Feature::Stt => Phase::Recording(crate::models::state::RecordingPhase::default()),
+                Feature::Tts => Phase::Speech(crate::models::state::SpeechPhase::default()),
             },
         }
     }
@@ -75,7 +75,7 @@ impl ProductLink {
 
 /// The product the panel shows: the active one, or when both are, whichever
 /// `alternate` points at.
-fn pick_front(active: &[Product], alternate: bool) -> Option<Product> {
+fn pick_front(active: &[Feature], alternate: bool) -> Option<Feature> {
     match active {
         [] => None,
         [only] => Some(*only),
@@ -85,7 +85,7 @@ fn pick_front(active: &[Product], alternate: bool) -> Option<Product> {
 
 /// The product whose tab the popup's settings show: the one last picked while
 /// it is installed, else the first installed one.
-fn pick_settings_tab(installed: &[Product], picked: Product) -> Option<Product> {
+fn pick_settings_tab(installed: &[Feature], picked: Feature) -> Option<Feature> {
     if installed.contains(&picked) {
         Some(picked)
     } else {
@@ -95,7 +95,7 @@ fn pick_settings_tab(installed: &[Product], picked: Product) -> Option<Product> 
 
 pub struct SuperApplet {
     core: cosmic::app::Core,
-    /// One link per product, in `Product::ALL` order.
+    /// One link per product, in `Feature::ALL` order.
     links: [ProductLink; 2],
     popup: Option<window::Id>,
     audio_level: f32,
@@ -106,7 +106,7 @@ pub struct SuperApplet {
     alternate: bool,
     /// The product the visualization was last fed, so switching products
     /// clears the other one's bars.
-    shown: Option<Product>,
+    shown: Option<Feature>,
     visualization: VisualizationComponent,
     working_animation: WorkingAnimationComponent,
     config: AppletConfig,
@@ -120,25 +120,25 @@ pub struct SuperApplet {
     selected_theme_for_config: bool, // false = light, true = dark
     /// The settings tab last picked. The popup falls back to another
     /// installed product's while this one isn't installed.
-    picked_settings_tab: Product,
+    picked_settings_tab: Feature,
     /// Where the settings are saved, and watched for the other applets'
     /// changes.
     settings_dir: PathBuf,
-    /// Whether a product is installed: [`Product::is_installed`], but for a
+    /// Whether a product is installed: [`Feature::is_installed`], but for a
     /// test.
-    is_installed: fn(Product) -> bool,
+    is_installed: fn(Feature) -> bool,
 }
 
 impl SuperApplet {
-    fn link(&self, product: Product) -> &ProductLink {
+    fn link(&self, product: Feature) -> &ProductLink {
         &self.links[product as usize]
     }
 
-    fn link_mut(&mut self, product: Product) -> &mut ProductLink {
+    fn link_mut(&mut self, product: Feature) -> &mut ProductLink {
         &mut self.links[product as usize]
     }
 
-    fn active_products(&self) -> Vec<Product> {
+    fn active_products(&self) -> Vec<Feature> {
         self.links
             .iter()
             .filter(|l| l.is_active())
@@ -147,11 +147,11 @@ impl SuperApplet {
     }
 
     /// The product whose activity the panel shows, if any is active.
-    fn front(&self) -> Option<Product> {
+    fn front(&self) -> Option<Feature> {
         pick_front(&self.active_products(), self.alternate)
     }
 
-    fn installed_products(&self) -> Vec<Product> {
+    fn installed_products(&self) -> Vec<Feature> {
         self.links
             .iter()
             .filter(|l| l.installed)
@@ -160,7 +160,7 @@ impl SuperApplet {
     }
 
     /// The product whose settings the popup shows, if any is installed.
-    fn settings_tab(&self) -> Option<Product> {
+    fn settings_tab(&self) -> Option<Feature> {
         pick_settings_tab(&self.installed_products(), self.picked_settings_tab)
     }
 }
@@ -251,7 +251,7 @@ impl cosmic::Application for SuperApplet {
 #[cfg(test)]
 mod tests {
     use super::{pick_front, pick_settings_tab};
-    use crate::products::Product::{Stt, Tts};
+    use crate::features::Feature::{Stt, Tts};
 
     #[test]
     fn a_test_applet_builds_and_draws_headless() {
@@ -309,7 +309,7 @@ mod tests {
 
         use crate::app::DaemonMessage;
         use crate::app::testing::TestApplet;
-        use crate::products::Product::{Stt, Tts};
+        use crate::features::Feature::{Stt, Tts};
 
         fn identities(applet: &TestApplet) -> Vec<u64> {
             into_recipes(cosmic::Application::subscription(&applet.applet))

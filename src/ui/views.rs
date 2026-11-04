@@ -2,8 +2,8 @@
 use crate::{
     app::{Message, ProductLink},
     config::AppletConfig,
+    features::Feature,
     models::state::{DaemonConnectionState, IsOpen},
-    products::Product,
     ui::sections::{
         app_info::create_app_info_section, launch::create_launch_section,
         settings::section::create_applet_settings_section, status::create_status_section,
@@ -26,7 +26,7 @@ pub struct PopupContentParams<'a> {
     pub theme_selector_model: &'a SingleSelectModel,
     pub selected_theme_for_config: bool,
     /// The product whose settings the tabs show, if any is installed.
-    pub settings_tab: Option<Product>,
+    pub settings_tab: Option<Feature>,
 }
 
 pub fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, Message> {
@@ -76,7 +76,7 @@ mod popup_tests {
     //! The popup as a whole. Each section has its own tests; these pin what
     //! the sections add up to.
     use crate::app::testing::TestApplet;
-    use crate::products::Product::{Stt, Tts};
+    use crate::features::Feature::{Stt, Tts};
     use crate::ui::simulator::{every_click, popup_texts};
 
     #[test]
@@ -87,8 +87,8 @@ mod popup_tests {
             [
                 "Super Applet".to_string(),
                 format!("v{}", crate::VERSION),
-                "Neither Super STT nor Super TTS is installed.".to_string(),
-                "Install either one to use this applet.".to_string(),
+                "Super Voice is not installed.".to_string(),
+                "Install it to use this applet.".to_string(),
             ]
         );
         assert_eq!(

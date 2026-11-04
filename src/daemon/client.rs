@@ -9,7 +9,7 @@
 use super_engine_client::http_client;
 use super_engine_client::session;
 
-use crate::products::{APP_NAME, Product};
+use crate::features::{APP_NAME, Feature};
 
 /// Ping `product`'s daemon to check it's reachable. Returns the daemon's
 /// `message` field (typically `"pong"`).
@@ -21,7 +21,7 @@ use crate::products::{APP_NAME, Product};
 ///
 /// Returns an error string if the daemon's HTTP listener is unreachable, the
 /// consent flow fails, or the token is no longer valid after one retry.
-pub async fn ping_daemon(product: Product) -> Result<String, String> {
+pub async fn ping_daemon(product: Feature) -> Result<String, String> {
     let socket = product.socket_path();
     let socket_for_op = socket.clone();
     session::with_token(

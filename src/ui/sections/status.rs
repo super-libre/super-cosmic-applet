@@ -14,8 +14,8 @@ pub fn create_status_section(links: &[ProductLink]) -> Option<Element<'static, M
     if !links.iter().any(|l| l.installed) {
         return Some(
             column![
-                text("Neither Super STT nor Super TTS is installed.").size(12),
-                text("Install either one to use this applet.").size(10),
+                text("Super Voice is not installed.").size(12),
+                text("Install it to use this applet.").size(10),
             ]
             .spacing(4)
             .into(),
@@ -70,13 +70,13 @@ fn product_status(link: &ProductLink) -> Option<Element<'static, Message>> {
 mod status_tests {
     use super::create_status_section;
     use crate::app::{DaemonMessage, Message, ProductLink};
+    use crate::features::Feature::{self, Stt, Tts};
     use crate::models::state::DaemonConnectionState::{
         self, Blocked, Connected, Connecting, Error,
     };
-    use crate::products::Product::{self, Stt, Tts};
     use crate::ui::simulator::Simulator;
 
-    fn link(product: Product, installed: bool, state: DaemonConnectionState) -> ProductLink {
+    fn link(product: Feature, installed: bool, state: DaemonConnectionState) -> ProductLink {
         let mut link = ProductLink::new(product, installed);
         link.daemon_state = state;
         link
@@ -124,8 +124,8 @@ mod status_tests {
         assert_eq!(
             texts,
             [
-                "Neither Super STT nor Super TTS is installed.",
-                "Install either one to use this applet."
+                "Super Voice is not installed.",
+                "Install it to use this applet."
             ]
         );
     }
@@ -143,7 +143,7 @@ mod status_tests {
             "Super TTS: authorization denied",
             "Reason: user denied",
             "Restart the daemon to clear the denial:",
-            "  systemctl --user restart super-tts",
+            "  systemctl --user restart super-voice",
         ] {
             assert!(ui.shows(line), "{line:?} missing from {:?}", ui.texts());
         }

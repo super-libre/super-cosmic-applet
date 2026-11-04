@@ -13,13 +13,13 @@ use super::init::ping_or_retry;
 use crate::app::{DaemonMessage, Message};
 use crate::config::AppletConfig;
 use crate::daemon::{RetryStrategy, ping_daemon};
+use crate::features::Feature;
 use crate::models::state::{
     CycleEvent, DaemonConnectionState, IsOpen, Phase, PhaseChange, SpeechEvent,
 };
 use crate::models::theme::{
     IconAlignment, VisualizationColor, VisualizationTheme, WorkingAnimationTheme,
 };
-use crate::products::Product;
 
 impl SuperApplet {
     pub(super) fn handle_message(&mut self, message: Message) -> cosmic_app::Task<Message> {
@@ -69,7 +69,7 @@ impl SuperApplet {
 
     fn handle_daemon_message(
         &mut self,
-        product: Product,
+        product: Feature,
         message: DaemonMessage,
     ) -> cosmic_app::Task<Message> {
         match message {
@@ -146,7 +146,7 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn daemon_connected(&mut self, product: Product) -> cosmic_app::Task<Message> {
+    fn daemon_connected(&mut self, product: Feature) -> cosmic_app::Task<Message> {
         let link = self.link_mut(product);
         // Log only the transition: this fires from both a successful
         // (re)connect ping and the subscription's `Connected` update, which
@@ -163,7 +163,7 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn ping_response(&mut self, product: Product) -> cosmic_app::Task<Message> {
+    fn ping_response(&mut self, product: Feature) -> cosmic_app::Task<Message> {
         // Fires on every liveness ping (~5 s) while connected: steady state,
         // so log at debug.
         debug!("{} ping OK", product.display_name());
@@ -173,7 +173,7 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn daemon_error(&mut self, product: Product, err: &str) -> cosmic_app::Task<Message> {
+    fn daemon_error(&mut self, product: Feature, err: &str) -> cosmic_app::Task<Message> {
         warn!("{} error: {err}", product.display_name());
         let link = self.link_mut(product);
         // Reset backoff when an established connection drops, so reconnecting
@@ -191,7 +191,7 @@ impl SuperApplet {
         })
     }
 
-    fn schedule_retry(&mut self, product: Product) -> cosmic_app::Task<Message> {
+    fn schedule_retry(&mut self, product: Feature) -> cosmic_app::Task<Message> {
         let link = self.link_mut(product);
         link.retry_strategy.should_retry(); // Always true; increments the attempt counter.
         let delay = link.retry_strategy.next_delay();
@@ -209,7 +209,7 @@ impl SuperApplet {
         )
     }
 
-    fn retry_connection(&mut self, product: Product) -> cosmic_app::Task<Message> {
+    fn retry_connection(&mut self, product: Feature) -> cosmic_app::Task<Message> {
         let link = self.link_mut(product);
         if !link.installed {
             // Uninstalled since the retry was scheduled: stop retrying.
@@ -223,7 +223,7 @@ impl SuperApplet {
         ping_or_retry(product)
     }
 
-    fn retry_authorization(&mut self, product: Product) -> cosmic_app::Task<Message> {
+    fn retry_authorization(&mut self, product: Feature) -> cosmic_app::Task<Message> {
         info!(
             "Asking {} for authorization again after a denial",
             product.display_name()
@@ -283,10 +283,10 @@ impl SuperApplet {
         cosmic_app::Task::batch(tasks)
     }
 
-    /// Fold one of Super STT's recording-cycle events into its phase.
+    /// Fold one of speech to text's recording-cycle events into its phase.
     fn apply_cycle_event(
         &mut self,
-        product: Product,
+        product: Feature,
         event: CycleEvent,
     ) -> cosmic_app::Task<Message> {
         let change = match &mut self.link_mut(product).phase {
@@ -299,10 +299,10 @@ impl SuperApplet {
         self.after_phase_change(product, change)
     }
 
-    /// Fold one of Super TTS's utterance events into its phase.
+    /// Fold one of text to speech's utterance events into its phase.
     fn apply_speech_event(
         &mut self,
-        product: Product,
+        product: Feature,
         event: SpeechEvent,
     ) -> cosmic_app::Task<Message> {
         let change = match &mut self.link_mut(product).phase {
@@ -319,7 +319,7 @@ impl SuperApplet {
     /// only ever draw the product in front.
     fn after_phase_change(
         &mut self,
-        product: Product,
+        product: Feature,
         change: PhaseChange,
     ) -> cosmic_app::Task<Message> {
         let in_front = self.front() == Some(product);
@@ -362,7 +362,7 @@ impl SuperApplet {
 
     fn frequency_bands(
         &mut self,
-        product: Product,
+        product: Feature,
         bands: &[f32],
         total_energy: f32,
     ) -> cosmic_app::Task<Message> {
@@ -377,7 +377,7 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn revoked(&mut self, product: Product, reason: &str) -> cosmic_app::Task<Message> {
+    fn revoked(&mut self, product: Feature, reason: &str) -> cosmic_app::Task<Message> {
         warn!(
             "{} revoked the session (reason={reason}); the next retry asks for consent again",
             product.display_name()
@@ -390,7 +390,7 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn blocked(&mut self, product: Product, reason: String) -> cosmic_app::Task<Message> {
+    fn blocked(&mut self, product: Feature, reason: String) -> cosmic_app::Task<Message> {
         warn!(
             "{} denied the subscription ({reason}); waiting for an explicit retry",
             product.display_name()
@@ -411,7 +411,7 @@ impl SuperApplet {
 
     fn set_visualization_theme(
         &mut self,
-        product: Product,
+        product: Feature,
         theme: VisualizationTheme,
     ) -> cosmic_app::Task<Message> {
         self.config.update_in(&self.settings_dir, |c| {
@@ -428,7 +428,7 @@ impl SuperApplet {
 
     fn set_working_animation(
         &mut self,
-        product: Product,
+        product: Feature,
         theme: WorkingAnimationTheme,
     ) -> cosmic_app::Task<Message> {
         self.config.update_in(&self.settings_dir, |c| {
@@ -461,7 +461,7 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn launch_app(product: Product) -> cosmic_app::Task<Message> {
+    fn launch_app(product: Feature) -> cosmic_app::Task<Message> {
         // `Command::new` already searches `PATH`; then the standard install
         // prefixes.
         let app = product.app_binary();
@@ -536,7 +536,7 @@ impl SuperApplet {
 
     fn set_visualization_color(
         &mut self,
-        product: Product,
+        product: Feature,
         color: VisualizationColor,
         is_dark: bool,
     ) -> cosmic_app::Task<Message> {
@@ -592,13 +592,13 @@ mod tests {
     use crate::app::testing::TestApplet;
     use crate::app::{DaemonMessage, Message};
     use crate::config::AppletConfig;
+    use crate::features::Feature::{self, Stt, Tts};
     use crate::models::state::{DaemonConnectionState, IsOpen};
     use crate::models::theme::{
         IconAlignment, VisualizationColor, VisualizationTheme, WorkingAnimationTheme,
     };
-    use crate::products::Product::{self, Stt, Tts};
 
-    fn connected(products: &[Product]) -> TestApplet {
+    fn connected(products: &[Feature]) -> TestApplet {
         let mut applet = TestApplet::new(products);
         for &product in products {
             applet.connect(product);
@@ -608,7 +608,7 @@ mod tests {
 
     /// Super STT starts recording, or Super TTS starts playing audio: the
     /// live phase each draws as the visualization.
-    fn make_live(applet: &mut TestApplet, product: Product) {
+    fn make_live(applet: &mut TestApplet, product: Feature) {
         match product {
             Stt => applet.daemon(Stt, DaemonMessage::RecordingState(true)),
             Tts => applet
@@ -617,7 +617,7 @@ mod tests {
         };
     }
 
-    fn bands(product: Product, energy: f32) -> Message {
+    fn bands(product: Feature, energy: f32) -> Message {
         Message::Daemon(
             product,
             DaemonMessage::FrequencyBands {

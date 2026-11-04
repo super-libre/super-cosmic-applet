@@ -25,7 +25,7 @@ fn main() -> cosmic::iced::Result {
 
     let matches = Command::new("super-cosmic-applet")
         .version(VERSION)
-        .about("COSMIC panel applet for Super STT and Super TTS")
+        .about("COSMIC panel applet for Super Voice")
         .arg(
             Arg::new("side")
                 .long("side")
