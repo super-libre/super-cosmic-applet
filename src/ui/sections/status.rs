@@ -96,25 +96,31 @@ mod status_tests {
     #[test]
     fn only_a_product_that_isnt_connected_gets_a_line() {
         let texts = shown(&[link(Stt, true, Connected), link(Tts, true, Connecting)])
-            .expect("Super TTS isn't connected");
+            .expect("Text to speech isn't connected");
         assert_eq!(
             texts,
-            ["Super TTS: connecting", "The daemon may still be starting."]
+            [
+                "Text to speech: connecting",
+                "The daemon may still be starting."
+            ]
         );
     }
 
     #[test]
     fn an_error_says_what_went_wrong() {
         let texts = shown(&[link(Stt, true, Error("revoked: exe_changed".into()))])
-            .expect("Super STT failed");
-        assert_eq!(texts[0], "Super STT: revoked: exe_changed");
+            .expect("Speech to text failed");
+        assert_eq!(texts[0], "Speech to text: revoked: exe_changed");
     }
 
     #[test]
     fn a_product_that_isnt_installed_gets_no_line() {
         let texts = shown(&[link(Stt, true, Connecting), link(Tts, false, Connecting)])
-            .expect("Super STT is connecting");
-        assert!(texts.iter().all(|t| !t.contains("Super TTS")), "{texts:?}");
+            .expect("Speech to text is connecting");
+        assert!(
+            texts.iter().all(|t| !t.contains("Text to speech")),
+            "{texts:?}"
+        );
     }
 
     #[test]
@@ -138,9 +144,10 @@ mod status_tests {
             link(Stt, true, Connected),
             link(Tts, true, Blocked("user denied".into())),
         ];
-        let mut ui = Simulator::new(create_status_section(&links).expect("Super TTS is denied"));
+        let mut ui =
+            Simulator::new(create_status_section(&links).expect("Text to speech is denied"));
         for line in [
-            "Super TTS: authorization denied",
+            "Text to speech: authorization denied",
             "Reason: user denied",
             "Restart the daemon to clear the denial:",
             "  systemctl --user restart super-voice",

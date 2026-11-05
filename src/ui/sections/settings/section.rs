@@ -194,15 +194,15 @@ mod settings_section_tests {
         let mut one = TestApplet::new(&[Stt]);
         one.connect(Stt);
         let texts = popup_texts(&one);
-        assert!(!texts.iter().any(|t| t == "Super STT"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t == "Speech to text"), "{texts:?}");
         assert!(
             texts.iter().any(|t| t == "Visualization Style"),
             "{texts:?}"
         );
 
         let texts = popup_texts(&connected());
-        assert!(texts.iter().any(|t| t == "Super STT"), "{texts:?}");
-        assert!(texts.iter().any(|t| t == "Super TTS"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Speech to text"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Text to speech"), "{texts:?}");
     }
 
     #[test]
@@ -211,8 +211,8 @@ mod settings_section_tests {
         let at = |label: &str| texts.iter().position(|t| t == label).unwrap();
         assert!(at("Show Icon") < at("Icon Position"));
         assert!(at("Icon Position") < at("Show Visualization"));
-        assert!(at("Visualization Size") < at("Super STT"));
-        assert!(at("Super TTS") < at("Visualization Style"));
+        assert!(at("Visualization Size") < at("Speech to text"));
+        assert!(at("Text to speech") < at("Visualization Style"));
     }
 
     #[test]
@@ -239,7 +239,11 @@ mod settings_section_tests {
 
         assert_eq!(sent, ["SetShowVisualizations(false)"]);
         let texts = popup_texts(&applet);
-        for hidden in ["Visualization Size", "Super STT", "Visualization Style"] {
+        for hidden in [
+            "Visualization Size",
+            "Speech to text",
+            "Visualization Style",
+        ] {
             assert!(
                 !texts.iter().any(|t| t == hidden),
                 "{hidden:?} in {texts:?}"

@@ -83,11 +83,12 @@ impl Feature {
         }
     }
 
-    /// The name the popup shows for this feature: its settings app's.
+    /// The name the popup shows for this feature, the one Super Voice's app
+    /// gives it.
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Stt => "Super STT",
-            Self::Tts => "Super TTS",
+            Self::Stt => "Speech to text",
+            Self::Tts => "Text to speech",
         }
     }
 
@@ -187,9 +188,9 @@ mod feature_tests {
     }
 
     #[test]
-    fn the_features_are_shown_by_their_apps_names() {
-        assert_eq!(Feature::Stt.display_name(), "Super STT");
-        assert_eq!(Feature::Tts.display_name(), "Super TTS");
+    fn the_features_are_shown_by_the_names_the_app_gives_them() {
+        assert_eq!(Feature::Stt.display_name(), "Speech to text");
+        assert_eq!(Feature::Tts.display_name(), "Text to speech");
     }
 
     /// The daemon keeps the applet's token under its client name.
