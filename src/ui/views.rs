@@ -106,9 +106,6 @@ mod popup_tests {
         assert_eq!(popup_texts(&applet)[0], "Super Applet");
         let clicks = every_click(|| applet.popup());
         assert_eq!(clicks.first().map(String::as_str), Some("OpenGitHub"));
-        assert_eq!(
-            clicks[clicks.len() - 2..],
-            ["LaunchApp(Stt)", "LaunchApp(Tts)"]
-        );
+        assert_eq!(clicks.last().map(String::as_str), Some("LaunchApp"));
     }
 }

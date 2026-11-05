@@ -45,7 +45,7 @@ impl SuperApplet {
                 self.set_working_animation(product, theme)
             }
             Message::OpenGitHub => Self::open_github(),
-            Message::LaunchApp(product) => Self::launch_app(product),
+            Message::LaunchApp => Self::launch_app(),
             Message::SetAppletWidth(width) => self.set_applet_width(width),
             Message::SetShowIcon(show_icon) => self.set_show_icon(show_icon),
             Message::SetIconAlignmentEntity(entity) => self.set_icon_alignment(entity),
@@ -461,25 +461,22 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn launch_app(product: Feature) -> cosmic_app::Task<Message> {
+    fn launch_app() -> cosmic_app::Task<Message> {
         // `Command::new` already searches `PATH`; then the standard install
         // prefixes.
-        let app = product.app_binary();
+        let app = crate::features::SETTINGS_APP;
         let launch_attempts = [
-            app.clone(),
-            format!("/usr/local/bin/{app}"),
-            format!("/usr/bin/{app}"),
+            app.binary.to_string(),
+            format!("/usr/local/bin/{}", app.binary),
+            format!("/usr/bin/{}", app.binary),
         ];
         for command in &launch_attempts {
             if Self::spawn_detached(&mut std::process::Command::new(command)).is_ok() {
-                info!("Launched {} with {command}", product.display_name());
+                info!("Launched {} with {command}", app.name);
                 return cosmic_app::Task::none();
             }
         }
-        warn!(
-            "Failed to launch the {} app: tried {launch_attempts:?}",
-            product.display_name()
-        );
+        warn!("Failed to launch {}: tried {launch_attempts:?}", app.name);
         cosmic_app::Task::none()
     }
 

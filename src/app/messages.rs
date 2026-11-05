@@ -19,7 +19,8 @@ pub enum Message {
     /// Both products are active: show the other one's visualization.
     AlternateFront,
     OpenGitHub,
-    LaunchApp(Feature),
+    /// Open the settings app.
+    LaunchApp,
     RevealerToggle(IsOpen),
     /// Show this product's tab of the per-product settings.
     SelectSettingsTab(Feature),

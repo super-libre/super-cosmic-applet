@@ -91,22 +91,6 @@ impl Feature {
         }
     }
 
-    /// The settings app the popup's launch button opens. Each feature still
-    /// has its own.
-    pub fn app_binary(self) -> String {
-        match self {
-            Self::Stt => "super-stt-app",
-            Self::Tts => "super-tts-app",
-        }
-        .to_string()
-    }
-
-    /// The settings app's icon in the icon theme: the name its desktop entry
-    /// gives, which is the app's binary.
-    pub fn app_icon(self) -> String {
-        self.app_binary()
-    }
-
     /// Whether the feature is installed on this machine: the daemon binary
     /// sits beside the applet, as the installer puts them, or on `PATH`. One
     /// daemon serves both features, so they are installed together.
@@ -170,6 +154,23 @@ mod tests {
     }
 }
 
+/// Super Voice's settings app, which the popup's launch button opens. One app
+/// shows both features.
+pub struct SettingsApp {
+    /// The executable, looked up on `PATH` and in the install prefixes.
+    pub binary: &'static str,
+    /// Its icon in the icon theme: the name its desktop entry gives.
+    pub icon: &'static str,
+    /// What the launch button's tooltip calls it.
+    pub name: &'static str,
+}
+
+pub const SETTINGS_APP: SettingsApp = SettingsApp {
+    binary: "super-voice-app",
+    icon: "super-voice-app",
+    name: "Super Voice",
+};
+
 #[cfg(test)]
 mod feature_tests {
     use super::{CLIENT_NAME, Feature};
@@ -177,14 +178,12 @@ mod feature_tests {
     use std::path::PathBuf;
 
     #[test]
-    fn each_feature_opens_its_own_app() {
-        assert_eq!(Feature::Stt.app_binary(), "super-stt-app");
-        assert_eq!(Feature::Tts.app_binary(), "super-tts-app");
+    fn both_features_open_super_voices_app() {
+        assert_eq!(super::SETTINGS_APP.binary, "super-voice-app");
         // The launch row looks the icon up under the name the desktop entry
         // gives it, which is the binary's.
-        for product in Feature::ALL {
-            assert_eq!(product.app_icon(), product.app_binary());
-        }
+        assert_eq!(super::SETTINGS_APP.icon, super::SETTINGS_APP.binary);
+        assert_eq!(super::SETTINGS_APP.name, "Super Voice");
     }
 
     #[test]

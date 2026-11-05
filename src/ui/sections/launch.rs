@@ -11,36 +11,32 @@ use cosmic::{
     },
 };
 
-/// A row with each installed product's full-color app icon, which opens its
-/// settings app.
+/// The settings app's full-color icon, which opens it. Shown when either
+/// feature is installed: one daemon serves both, and one app shows both.
 ///
-/// The icon comes from the icon theme, so it follows the product's own
-/// artwork instead of a copy kept here. One that isn't installed shows the
-/// generic application icon: the default fallback would try `super-tts`, then
+/// The icon comes from the icon theme, so it follows the app's own artwork
+/// instead of a copy kept here. An app that isn't installed shows the generic
+/// application icon: the default fallback would try `super-voice`, then
 /// `super`, and could land on an unrelated icon.
 pub fn create_launch_section(links: &[ProductLink]) -> Element<'static, Message> {
     let spacing = theme::active().cosmic().spacing;
-    links
-        .iter()
-        .filter(|l| l.installed)
-        .fold(Row::new().spacing(spacing.space_xs), |row, link| {
-            let product = link.product;
-            let app_icon = icon::from_name(product.app_icon())
-                .size(32)
-                .fallback(Some(IconFallback::Names(vec![
-                    "application-x-executable".into(),
-                ])))
-                .handle();
-            // Above the icon: the row is the popup's last, with no room below.
-            row.push(tooltip(
-                button::icon(app_icon)
-                    .medium()
-                    .on_press(Message::LaunchApp(product)),
-                text(format!("Open {}", product.display_name())),
-                tooltip::Position::Top,
-            ))
-        })
-        .into()
+    let mut row = Row::new().spacing(spacing.space_xs);
+    if links.iter().any(|l| l.installed) {
+        let app = crate::features::SETTINGS_APP;
+        let app_icon = icon::from_name(app.icon)
+            .size(32)
+            .fallback(Some(IconFallback::Names(vec![
+                "application-x-executable".into(),
+            ])))
+            .handle();
+        // Above the icon: the row is the popup's last, with no room below.
+        row = row.push(tooltip(
+            button::icon(app_icon).medium().on_press(Message::LaunchApp),
+            text(format!("Open {}", app.name)),
+            tooltip::Position::Top,
+        ));
+    }
+    row.into()
 }
 
 #[cfg(test)]
@@ -51,26 +47,20 @@ mod launch_tests {
     use crate::ui::simulator::{Simulator, every_click};
 
     #[test]
-    fn each_installed_product_gets_an_icon_that_opens_its_app() {
+    fn one_icon_opens_the_app_for_both_features() {
         let links = [ProductLink::new(Stt, true), ProductLink::new(Tts, true)];
-        assert_eq!(
-            every_click(|| create_launch_section(&links)),
-            ["LaunchApp(Stt)", "LaunchApp(Tts)"]
-        );
+        assert_eq!(every_click(|| create_launch_section(&links)), ["LaunchApp"]);
     }
 
     #[test]
-    fn a_product_that_isnt_installed_gets_no_icon() {
-        let links = [ProductLink::new(Stt, false), ProductLink::new(Tts, true)];
-        assert_eq!(
-            every_click(|| create_launch_section(&links)),
-            ["LaunchApp(Tts)"]
-        );
+    fn nothing_installed_gets_no_icon() {
+        let links = [ProductLink::new(Stt, false), ProductLink::new(Tts, false)];
+        assert!(every_click(|| create_launch_section(&links)).is_empty());
     }
 
-    /// The names are in tooltips, which only show on hover.
+    /// The name is in the tooltip, which only shows on hover.
     #[test]
-    fn the_row_is_icons_without_text() {
+    fn the_row_is_an_icon_without_text() {
         let links = [ProductLink::new(Stt, true), ProductLink::new(Tts, true)];
         assert!(
             Simulator::new(create_launch_section(&links))
