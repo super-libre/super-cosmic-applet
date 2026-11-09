@@ -10,9 +10,9 @@ use super::{ProductLink, SuperApplet};
 use crate::app::{DaemonMessage, Message};
 use crate::config::AppletConfig;
 use crate::daemon::ping_daemon;
+use crate::features::Feature;
 use crate::models::state::IsOpen;
 use crate::models::theme::{IconAlignment, VisualizationSide};
-use crate::products::Product;
 use crate::ui::components::sound_visualization::VisualizationComponent;
 use crate::ui::components::working_animation_component::WorkingAnimationComponent;
 
@@ -52,7 +52,7 @@ fn build_theme_selector_model(is_dark: bool) -> (SingleSelectModel, Entity, Enti
 
 /// Ping `product`'s daemon, reporting a success as connected and a failure
 /// as a retry to schedule.
-pub(super) fn ping_or_retry(product: Product) -> cosmic_app::Task<Message> {
+pub(super) fn ping_or_retry(product: Feature) -> cosmic_app::Task<Message> {
     cosmic_app::Task::perform(ping_daemon(product), move |result| {
         cosmic::Action::App(Message::Daemon(
             product,
@@ -78,7 +78,7 @@ impl SuperApplet {
             visualization_side,
             AppletConfig::load(),
             AppletConfig::config_dir(),
-            Product::is_installed,
+            Feature::is_installed,
         )
     }
 
@@ -90,11 +90,11 @@ impl SuperApplet {
         visualization_side: VisualizationSide,
         config: AppletConfig,
         settings_dir: PathBuf,
-        is_installed: fn(Product) -> bool,
+        is_installed: fn(Feature) -> bool,
     ) -> (Self, cosmic_app::Task<Message>) {
         // Nothing is in front yet: the first product to become active swaps
         // its own look in (`sync_shown`).
-        let look = config.visualization.product(Product::Stt);
+        let look = config.visualization.product(Feature::Stt);
         let visualization = VisualizationComponent::new(
             0.0,
             false,
@@ -118,7 +118,7 @@ impl SuperApplet {
 
         let applet = Self {
             core,
-            links: Product::ALL.map(|p| ProductLink::new(p, is_installed(p))),
+            links: Feature::ALL.map(|p| ProductLink::new(p, is_installed(p))),
             popup: None,
             audio_level: 0.0,
             is_speech_detected: false,
@@ -136,7 +136,7 @@ impl SuperApplet {
             theme_selector_light,
             theme_selector_dark,
             selected_theme_for_config: is_dark,
-            picked_settings_tab: Product::Stt,
+            picked_settings_tab: Feature::Stt,
             settings_dir,
             is_installed,
         };

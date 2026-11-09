@@ -9,12 +9,12 @@ use cosmic::{
     widget::{button, container, divider, text},
 };
 
-use crate::{app::Message, products::Product};
+use crate::{app::Message, features::Feature};
 
 /// Tab bar over the per-product settings, one tab per product in `products`:
 /// flat text tabs with an accent rim marking the active one, over a
-/// full-width hairline divider. The same tabs as Super STT's Library page.
-pub fn product_tabs(products: &[Product], active: Product) -> Element<'static, Message> {
+/// full-width hairline divider. The same tabs as Super Voice's Library page.
+pub fn product_tabs(products: &[Feature], active: Feature) -> Element<'static, Message> {
     let spacing = theme::active().cosmic().spacing;
 
     let tabs = products
@@ -106,24 +106,28 @@ fn tab_inner_class(active: bool) -> theme::Button {
 mod tabs_tests {
     use super::product_tabs;
     use crate::app::Message;
-    use crate::products::Product::{Stt, Tts};
+    use crate::features::Feature::{Stt, Tts};
     use crate::ui::simulator::Simulator;
 
     #[test]
     fn each_product_gets_a_tab_in_the_order_given() {
         assert_eq!(
             Simulator::new(product_tabs(&[Stt, Tts], Stt)).texts(),
-            ["Super STT", "Super TTS"]
+            ["Speech to text", "Text to speech"]
         );
         assert_eq!(
             Simulator::new(product_tabs(&[Tts, Stt], Stt)).texts(),
-            ["Super TTS", "Super STT"]
+            ["Text to speech", "Speech to text"]
         );
     }
 
     #[test]
     fn a_tab_picks_its_product() {
-        for (label, active) in [("Super TTS", Stt), ("Super STT", Tts), ("Super STT", Stt)] {
+        for (label, active) in [
+            ("Text to speech", Stt),
+            ("Speech to text", Tts),
+            ("Speech to text", Stt),
+        ] {
             let mut ui = Simulator::new(product_tabs(&[Stt, Tts], active));
             ui.click(label);
             let picked = match ui.into_messages().as_slice() {

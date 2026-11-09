@@ -4,26 +4,25 @@
 
 <img src="resources/icons/hicolor/scalable/apps/super-cosmic-applet.svg" width="96" height="96" alt="Super Applet">
 
-A COSMIC panel applet for [Super STT](https://github.com/jorge-menjivar/super-stt)
-and [Super TTS](https://github.com/super-libre/super-tts). It shows what either
-one is doing:
+A COSMIC panel applet for [Super Voice](https://github.com/jorge-menjivar/super-stt).
+It shows what each of its two features is doing:
 
-1. While Super STT records, it draws your microphone. While it transcribes, it
-   shows a working animation.
-2. While Super TTS speaks, it draws what is playing. While it prepares the first
-   audio, it shows the same working animation.
+1. While speech to text records, it draws your microphone. While it
+   transcribes, it shows a working animation.
+2. While text to speech speaks, it draws what is playing. While it prepares
+   the first audio, it shows the same working animation.
 3. When both are active at once, it switches between them every few seconds.
-   Each product has its own style, loading animation and colors, set under its
+   Each feature has its own style, loading animation and colors, set under its
    tab in the popup.
 4. The rest of the time it shows its icon. Click it for settings and each
-   product's status.
+   feature's status.
 
-The applet talks to each daemon over its Unix socket, with its own session, and
-works with either product installed or both.
+The applet talks to the Super Voice daemon over its Unix socket, with one
+session for both features.
 
 ## Install
 
-Both products' installers install the applet. To try a local build:
+Super Voice's installer installs the applet. To try a local build:
 
 ```sh
 just install     # build, then copy into /usr/local (asks for sudo)
@@ -46,14 +45,14 @@ just test
 just run         # run the full applet against the running daemons
 ```
 
-The applet takes each product's names from that product's own crate, and
-super-engine's client for the rest. `Cargo.toml` explains why all three must
+The applet takes the daemon's names from Super Voice's registry types crate,
+and super-engine's client for the rest. `Cargo.toml` explains why both must
 name the same super-engine revision.
 
 ## Release
 
-A release publishes the tarballs Super STT's and Super TTS's installers
-install the applet from. To cut one:
+A release publishes the tarballs Super Voice's installer installs the applet
+from. To cut one:
 
 1. Set `version` in `Cargo.toml`, run `just check` so `Cargo.lock` picks it
    up, and commit both files.

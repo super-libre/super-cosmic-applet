@@ -236,7 +236,7 @@ pub(crate) fn in_popup(
     let sent = messages.iter().map(|m| format!("{m:?}")).collect();
     for message in messages {
         assert!(
-            !matches!(message, Message::LaunchApp(_) | Message::OpenGitHub),
+            !matches!(message, Message::LaunchApp | Message::OpenGitHub),
             "{message:?} would start a process"
         );
         applet.send(message);

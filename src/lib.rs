@@ -2,9 +2,9 @@
 mod app;
 mod config;
 mod daemon;
+mod features;
 mod logging;
 mod models;
-mod products;
 mod ui;
 mod util;
 

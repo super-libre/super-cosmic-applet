@@ -12,7 +12,7 @@ use cosmic::{
 
 use crate::{
     app::Message,
-    products::Product,
+    features::Feature,
     ui::{
         components::tabs::product_tabs,
         sections::settings::components::visualization_theme::{
@@ -28,7 +28,7 @@ use crate::{
 /// below them, under a tab per installed product, showing `tab`'s.
 pub fn create_applet_settings_section<'a>(
     params: &PopupContentParams<'a>,
-    tab: Product,
+    tab: Feature,
 ) -> Element<'a, Message> {
     let PopupContentParams {
         config,
@@ -122,11 +122,11 @@ pub fn create_applet_settings_section<'a>(
 /// no tab bar.
 fn create_product_settings<'a>(
     params: &PopupContentParams<'a>,
-    tab: Product,
+    tab: Feature,
 ) -> Element<'a, Message> {
     let spacing = theme::active().cosmic().spacing;
     let look = params.config.visualization.product(tab);
-    let installed: Vec<Product> = params
+    let installed: Vec<Feature> = params
         .links
         .iter()
         .filter(|l| l.installed)
@@ -163,8 +163,8 @@ mod settings_section_tests {
     //! The settings part of the popup, on a real applet: what shows when, and
     //! that each control's click reaches the saved settings.
     use crate::app::testing::TestApplet;
+    use crate::features::Feature::{Stt, Tts};
     use crate::models::theme::IconAlignment;
-    use crate::products::Product::{Stt, Tts};
     use crate::ui::simulator::{in_popup, popup_texts};
     use cosmic::iced::Point;
 
@@ -194,15 +194,15 @@ mod settings_section_tests {
         let mut one = TestApplet::new(&[Stt]);
         one.connect(Stt);
         let texts = popup_texts(&one);
-        assert!(!texts.iter().any(|t| t == "Super STT"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t == "Speech to text"), "{texts:?}");
         assert!(
             texts.iter().any(|t| t == "Visualization Style"),
             "{texts:?}"
         );
 
         let texts = popup_texts(&connected());
-        assert!(texts.iter().any(|t| t == "Super STT"), "{texts:?}");
-        assert!(texts.iter().any(|t| t == "Super TTS"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Speech to text"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Text to speech"), "{texts:?}");
     }
 
     #[test]
@@ -211,8 +211,8 @@ mod settings_section_tests {
         let at = |label: &str| texts.iter().position(|t| t == label).unwrap();
         assert!(at("Show Icon") < at("Icon Position"));
         assert!(at("Icon Position") < at("Show Visualization"));
-        assert!(at("Visualization Size") < at("Super STT"));
-        assert!(at("Super TTS") < at("Visualization Style"));
+        assert!(at("Visualization Size") < at("Speech to text"));
+        assert!(at("Text to speech") < at("Visualization Style"));
     }
 
     #[test]
@@ -239,7 +239,11 @@ mod settings_section_tests {
 
         assert_eq!(sent, ["SetShowVisualizations(false)"]);
         let texts = popup_texts(&applet);
-        for hidden in ["Visualization Size", "Super STT", "Visualization Style"] {
+        for hidden in [
+            "Visualization Size",
+            "Speech to text",
+            "Visualization Style",
+        ] {
             assert!(
                 !texts.iter().any(|t| t == hidden),
                 "{hidden:?} in {texts:?}"
