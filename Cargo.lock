@@ -4865,7 +4865,7 @@ dependencies = [
 [[package]]
 name = "super-engine-client"
 version = "0.1.0"
-source = "git+https://github.com/super-libre/super-engine?rev=8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5#8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5"
+source = "git+https://github.com/super-libre/super-engine?rev=79e3ceace42d9492c60277abfaa4c08b63cf3fdb#79e3ceace42d9492c60277abfaa4c08b63cf3fdb"
 dependencies = [
  "async-stream",
  "futures-util",
@@ -4884,7 +4884,7 @@ dependencies = [
 [[package]]
 name = "super-engine-protocol"
 version = "0.1.0"
-source = "git+https://github.com/super-libre/super-engine?rev=8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5#8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5"
+source = "git+https://github.com/super-libre/super-engine?rev=79e3ceace42d9492c60277abfaa4c08b63cf3fdb#79e3ceace42d9492c60277abfaa4c08b63cf3fdb"
 dependencies = [
  "dirs",
  "env_logger",
@@ -4899,7 +4899,7 @@ dependencies = [
 [[package]]
 name = "super-engine-spec"
 version = "0.1.0"
-source = "git+https://github.com/super-libre/super-engine?rev=8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5#8cc91b21c82bcf2d275ee1e981c5ddae0d79afc5"
+source = "git+https://github.com/super-libre/super-engine?rev=79e3ceace42d9492c60277abfaa4c08b63cf3fdb#79e3ceace42d9492c60277abfaa4c08b63cf3fdb"
 dependencies = [
  "hex",
  "ring",
@@ -4915,7 +4915,7 @@ dependencies = [
 [[package]]
 name = "super-voice-registry-types"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/jorge-menjivar/super-stt?rev=8d28f0e96892b641ab17420a36d13f4464a0af57#8d28f0e96892b641ab17420a36d13f4464a0af57"
+source = "git+https://github.com/jorge-menjivar/super-stt?rev=c2ed7b6432ba4a72424e9eea23533274527ef0b6#c2ed7b6432ba4a72424e9eea23533274527ef0b6"
 dependencies = [
  "serde",
  "serde_json",
