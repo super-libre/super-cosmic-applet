@@ -68,7 +68,7 @@
         rev = "79e3ceace42d9492c60277abfaa4c08b63cf3fdb",
     }
     super-voice-registry-types = {
-        git = "https://github.com/jorge-menjivar/super-stt",
+        git = "https://github.com/jorge-menjivar/super-voice",
         rev = "c2ed7b6432ba4a72424e9eea23533274527ef0b6",
     }
     tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
