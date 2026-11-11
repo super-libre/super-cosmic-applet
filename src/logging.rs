@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The applet's logger: super-engine's `logging::init`, with libcosmic's
-//! per-redraw height line left out.
+//! The applet's logger: super-engine's `logging::init`, with libcosmic's and
+//! iced's per-frame and per-window chatter left out.
 //!
 //! libcosmic's `Context::suggested_window_size` logs the height it returns at
 //! `info`, under `cosmic::applet`, and the applet asks for that size each time
@@ -13,6 +13,15 @@
 //! It logs each step of connecting to the session bus at `info`, and the
 //! spans it opens arrive through `tracing`'s bridge as `tracing::span`: a
 //! dozen lines per instance on every start, each filed as a warning.
+//!
+//! `cosmic::app::cosmic` is held to warnings for the same reason. Its one
+//! `info` line is "Suggested bounds", logged each time the panel configures
+//! the applet's surface. The panel can do that every second without the
+//! applet changing at all, two lines each time: ~7,200 warnings an hour from
+//! an idle applet. Its errors still come through.
+//!
+//! `iced_winit` is held to warnings too. Its `info` lines are startup notes
+//! and a ~40-line dump of the window settings each time a window opens.
 
 use env_logger::Builder;
 use log::LevelFilter;
@@ -28,14 +37,17 @@ pub fn init() {
     builder.init();
 }
 
-/// `info`, but only warnings and errors from `cosmic::applet` and from zbus.
-/// `cosmic::applet`'s `token` module keeps `info`: that is where libcosmic
-/// says the applet is exiting because the panel did.
+/// `info`, but only warnings and errors from `cosmic::applet`,
+/// `cosmic::app::cosmic`, `iced_winit` and zbus. `cosmic::applet`'s `token`
+/// module keeps `info`: that is where libcosmic says the applet is exiting
+/// because the panel did.
 fn defaults(builder: &mut Builder) -> &mut Builder {
     builder
         .filter_level(LevelFilter::Info)
         .filter_module("cosmic::applet", LevelFilter::Warn)
         .filter_module("cosmic::applet::token", LevelFilter::Info)
+        .filter_module("cosmic::app::cosmic", LevelFilter::Warn)
+        .filter_module("iced_winit", LevelFilter::Warn)
         .filter_module("zbus", LevelFilter::Warn)
         .filter_module("tracing::span", LevelFilter::Warn)
 }
@@ -75,6 +87,20 @@ mod tests {
     #[test]
     fn keeps_zbus_warnings() {
         assert!(logs("zbus::connection", Level::Warn));
+    }
+
+    #[test]
+    fn drops_libcosmics_suggested_bounds_line() {
+        assert!(!logs("cosmic::app::cosmic", Level::Info));
+        assert!(logs("cosmic::app::cosmic", Level::Warn));
+        assert!(logs("cosmic::app::cosmic", Level::Error));
+    }
+
+    #[test]
+    fn drops_iceds_window_notes() {
+        assert!(!logs("iced_winit", Level::Info));
+        assert!(!logs("iced_winit::platform_specific::wayland", Level::Info));
+        assert!(logs("iced_winit", Level::Warn));
     }
 
     #[test]
