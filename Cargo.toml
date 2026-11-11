@@ -1,16 +1,11 @@
 [package]
     name = "super-cosmic-applet"
-    version = "0.1.1-beta.1"
+    version = "0.1.1"
     authors = ["Jorge Menjivar <jorge@menjivar.ai>"]
     edition = "2024"
     description = "COSMIC panel applet for Super STT and Super TTS"
     repository = "https://github.com/super-libre/super-cosmic-applet"
     license = "GPL-3.0-only"
-
-# Its own workspace, wherever it is checked out. Each product's release, and
-# its `just build-applet`, check it out inside the product's repo, where cargo
-# would otherwise take it for an unlisted member of the product's workspace.
-[workspace]
 
 [[bin]]
     name = "super-cosmic-applet"
@@ -80,6 +75,11 @@
 # apply the same standard as CI.
 [lints.rust]
     unused_must_use = "deny"
+
+# Its own workspace, wherever it is checked out. Each product's release, and
+# its `just build-applet`, check it out inside the product's repo, where cargo
+# would otherwise take it for an unlisted member of the product's workspace.
+[workspace]
 
 [profile.release]
     lto = true
