@@ -8,6 +8,11 @@
 //! applet's stderr, and the journal files it at warning priority, so each
 //! redraw was a warning: ~285 a minute idle and ~6,500 while a visualization
 //! drew, most of what `journalctl -p warning` showed.
+//!
+//! zbus is held to warnings too, as super-engine's `logging::init` holds it.
+//! It logs each step of connecting to the session bus at `info`, and the
+//! spans it opens arrive through `tracing`'s bridge as `tracing::span`: a
+//! dozen lines per instance on every start, each filed as a warning.
 
 use env_logger::Builder;
 use log::LevelFilter;
@@ -23,14 +28,16 @@ pub fn init() {
     builder.init();
 }
 
-/// `info`, but only warnings and errors from `cosmic::applet`. Its `token`
-/// module keeps `info`: that is where libcosmic says the applet is exiting
-/// because the panel did.
+/// `info`, but only warnings and errors from `cosmic::applet` and from zbus.
+/// `cosmic::applet`'s `token` module keeps `info`: that is where libcosmic
+/// says the applet is exiting because the panel did.
 fn defaults(builder: &mut Builder) -> &mut Builder {
     builder
         .filter_level(LevelFilter::Info)
         .filter_module("cosmic::applet", LevelFilter::Warn)
         .filter_module("cosmic::applet::token", LevelFilter::Info)
+        .filter_module("zbus", LevelFilter::Warn)
+        .filter_module("tracing::span", LevelFilter::Warn)
 }
 
 #[cfg(test)]
@@ -57,6 +64,17 @@ mod tests {
     #[test]
     fn keeps_the_panel_exit_notice() {
         assert!(logs("cosmic::applet::token::wayland_handler", Level::Info));
+    }
+
+    #[test]
+    fn drops_zbus_connection_steps() {
+        assert!(!logs("zbus::connection::handshake::common", Level::Info));
+        assert!(!logs("tracing::span", Level::Info));
+    }
+
+    #[test]
+    fn keeps_zbus_warnings() {
+        assert!(logs("zbus::connection", Level::Warn));
     }
 
     #[test]
