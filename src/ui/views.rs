@@ -69,7 +69,6 @@ pub fn section_divider<'a>() -> Element<'a, Message> {
 /// The main page: the applet, with the apps it opens, then each product's
 /// status and the settings.
 fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, Message> {
-    let divider = section_divider;
     let any_connected = params
         .links
         .iter()
@@ -81,7 +80,7 @@ fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, Mess
             .apply(Element::from),
     ];
     if let Some(status) = create_status_section(params.links) {
-        content = content.push(divider()).push(
+        content = content.push(section_divider()).push(
             padded_control(status)
                 .padding(menu_control_padding())
                 .apply(Element::from),
@@ -90,7 +89,7 @@ fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, Mess
     // The settings appear once either daemon is connected.
     if any_connected {
         content = content
-            .push(divider())
+            .push(section_divider())
             .push(create_applet_settings_section(params));
     }
     content.padding([8, 0]).into()
