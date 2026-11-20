@@ -33,7 +33,7 @@ pub fn palette_swatch(
 ) -> Element<'static, Message> {
     // Every swatch keeps the ring's room, drawn or not, so picking one
     // doesn't shift the others.
-    let ring = container(circle(palette, cosmic_theme))
+    let ring = container(palette_circle(palette, SIZE, cosmic_theme))
         .padding(RING_GAP)
         .style(move |theme| container::Style {
             border: Border {
@@ -67,7 +67,7 @@ pub fn accent_choice(
 ) -> Element<'static, Message> {
     let spacing = cosmic_theme.spacing;
     let content = row![
-        circle(ColorPalette::Accent, cosmic_theme),
+        palette_circle(ColorPalette::Accent, SIZE, cosmic_theme),
         column![
             text::body(ColorPalette::Accent.pretty_name()),
             text::caption(ACCENT_CAPTION),
@@ -112,10 +112,11 @@ pub fn accent_choice(
 /// What the accent pair is, under its name.
 pub const ACCENT_CAPTION: &str = "Follows your system color";
 
-/// `palette`'s circle: both products' gradients blended from the top left
-/// to the bottom right.
-fn circle(
+/// `palette`'s circle, `size` wide: both products' gradients blended from
+/// the top left to the bottom right.
+pub fn palette_circle(
     palette: ColorPalette,
+    size: f32,
     cosmic_theme: &cosmic::cosmic_theme::Theme,
 ) -> Element<'static, Message> {
     let [stt, tts] = [Feature::Stt, Feature::Tts].map(|p| gradient_of(palette, p, cosmic_theme));
@@ -134,7 +135,7 @@ fn circle(
         tts.stops[4],
         tts.stops[STOPS - 1],
     ];
-    disc(SIZE, background(&blend))
+    disc(size, background(&blend))
 }
 
 /// A small dot of `product`'s gradient in `palette`, for the legend that

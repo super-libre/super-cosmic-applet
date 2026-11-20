@@ -14,9 +14,7 @@ use crate::config::AppletConfig;
 use crate::daemon::{RetryStrategy, ping_daemon};
 use crate::features::Feature;
 use crate::models::palette::{ColorPalette, ProductColors};
-use crate::models::state::{
-    CycleEvent, DaemonConnectionState, IsOpen, Phase, PhaseChange, SpeechEvent,
-};
+use crate::models::state::{CycleEvent, DaemonConnectionState, Phase, PhaseChange, SpeechEvent};
 use crate::models::theme::{IconAlignment, VisualizationTheme, WorkingAnimationTheme};
 
 impl SuperApplet {
@@ -31,7 +29,15 @@ impl SuperApplet {
                 self.sync_shown();
                 cosmic_app::Task::none()
             }
-            Message::RevealerToggle(src) => self.revealer_toggle(src),
+            Message::ShowPage(page) => {
+                self.pages.open(page, Instant::now());
+                cosmic_app::Task::none()
+            }
+            Message::PageTurnTick(now) => {
+                self.pages.tick(now);
+                cosmic_app::Task::none()
+            }
+            Message::Surface(action) => surface_task(action),
             Message::SetVisualizationTheme(theme) => self.set_visualization_theme(theme),
             Message::SetWorkingAnimation(theme) => self.set_working_animation(theme),
             Message::SetColorPalette(palette) => self.set_color_palette(palette),
@@ -113,6 +119,8 @@ impl SuperApplet {
     fn toggle_popup(&mut self) -> cosmic_app::Task<Message> {
         if let Some(p) = self.popup.take() {
             self.size_preview.dragging = false;
+            // The next popup opens on the main page.
+            self.pages = super::pages::Pages::default();
             return surface_task(surface_action::destroy_popup(p));
         }
         let Some(main_window_id) = self.core.main_window_id() else {
@@ -139,6 +147,7 @@ impl SuperApplet {
         if Some(id) == self.popup {
             self.popup = None;
             self.size_preview.dragging = false;
+            self.pages = super::pages::Pages::default();
         }
         cosmic_app::Task::none()
     }
@@ -397,15 +406,6 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn revealer_toggle(&mut self, is_open_src: IsOpen) -> cosmic_app::Task<Message> {
-        self.is_open = if self.is_open == is_open_src {
-            IsOpen::None
-        } else {
-            is_open_src
-        };
-        cosmic_app::Task::none()
-    }
-
     fn set_visualization_theme(&mut self, theme: VisualizationTheme) -> cosmic_app::Task<Message> {
         self.config
             .update_in(&self.settings_dir, |c| c.visualization.theme = theme);
@@ -414,7 +414,6 @@ impl SuperApplet {
             self.visualization
                 .update_audio_level(self.audio_level, self.is_speech_detected);
         }
-        self.is_open = IsOpen::None;
         cosmic_app::Task::none()
     }
 
@@ -423,7 +422,6 @@ impl SuperApplet {
             c.visualization.working_animation = theme;
         });
         self.apply_look();
-        self.is_open = IsOpen::None;
         cosmic_app::Task::none()
     }
 
@@ -560,7 +558,7 @@ mod tests {
     use crate::config::AppletConfig;
     use crate::features::Feature::{self, Stt, Tts};
     use crate::models::palette::{ColorPalette, ProductColors};
-    use crate::models::state::{DaemonConnectionState, IsOpen};
+    use crate::models::state::{DaemonConnectionState, Page};
     use crate::models::theme::{IconAlignment, VisualizationTheme, WorkingAnimationTheme};
 
     fn connected(products: &[Feature]) -> TestApplet {
@@ -973,26 +971,17 @@ mod tests {
             );
         }
 
+        /// The palettes have a page of their own: picking one stays on it,
+        /// so trying another is a click away.
         #[test]
-        fn picking_a_style_or_an_animation_closes_its_list() {
+        fn picking_a_palette_stays_on_the_colors_page() {
             let mut applet = connected(&[Stt]);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationTheme));
-            applet.send(Message::SetVisualizationTheme(VisualizationTheme::Pulse));
-            assert_eq!(applet.applet.is_open, IsOpen::None);
-
-            applet.send(Message::RevealerToggle(IsOpen::WorkingAnimation));
-            applet.send(Message::SetWorkingAnimation(WorkingAnimationTheme::Comet));
-            assert_eq!(applet.applet.is_open, IsOpen::None);
-        }
-
-        #[test]
-        fn picking_a_palette_keeps_the_swatches_open() {
-            let mut applet = connected(&[Stt]);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
+            applet.show_page(Page::Colors);
 
             applet.send(Message::SetColorPalette(ColorPalette::EmberAndAsh));
 
-            assert_eq!(applet.applet.is_open, IsOpen::VisualizationColors);
+            assert_eq!(applet.applet.pages.shown(), Page::Colors);
+            assert!(!applet.applet.pages.turning());
         }
     }
 
@@ -1042,15 +1031,32 @@ mod tests {
         }
 
         #[test]
-        fn one_list_opens_at_a_time_and_a_second_press_closes_it() {
+        fn the_colors_page_slides_in_and_back_out() {
             let mut applet = connected(&[Stt]);
 
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationTheme));
-            assert_eq!(applet.applet.is_open, IsOpen::VisualizationTheme);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
-            assert_eq!(applet.applet.is_open, IsOpen::VisualizationColors);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
-            assert_eq!(applet.applet.is_open, IsOpen::None);
+            applet.send(Message::ShowPage(Page::Colors));
+            assert_eq!(applet.applet.pages.slide(), Some((Page::Main, 0.0)));
+            applet.show_page(Page::Main);
+            assert_eq!(applet.applet.pages.shown(), Page::Main);
+            assert!(!applet.applet.pages.turning());
+        }
+
+        /// However the popup closes, on whatever page, it opens again on
+        /// the main one.
+        #[test]
+        fn the_popup_opens_again_on_the_main_page() {
+            let id = window::Id::unique();
+            for close in [Message::TogglePopup, Message::CloseRequested(id)] {
+                let mut applet = connected(&[Stt]);
+                applet.applet.popup = Some(id);
+                applet.send(Message::ShowPage(Page::Colors));
+
+                applet.send(close.clone());
+
+                assert_eq!(applet.applet.popup, None, "{close:?}");
+                assert_eq!(applet.applet.pages.shown(), Page::Main, "{close:?}");
+                assert!(!applet.applet.pages.turning(), "{close:?}");
+            }
         }
 
         #[test]

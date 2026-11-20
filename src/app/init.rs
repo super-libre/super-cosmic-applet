@@ -12,7 +12,6 @@ use crate::config::AppletConfig;
 use crate::daemon::ping_daemon;
 use crate::features::Feature;
 use crate::models::palette::ProductColors;
-use crate::models::state::IsOpen;
 use crate::models::theme::{IconAlignment, VisualizationSide};
 use crate::ui::components::sound_visualization::VisualizationComponent;
 use crate::ui::components::working_animation_component::WorkingAnimationComponent;
@@ -103,7 +102,7 @@ impl SuperApplet {
             popup: None,
             audio_level: 0.0,
             is_speech_detected: false,
-            is_open: IsOpen::None,
+            pages: super::pages::Pages::default(),
             alternate: false,
             shown: None,
             visualization,

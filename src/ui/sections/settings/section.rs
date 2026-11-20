@@ -7,17 +7,17 @@ use cosmic::{
         widget::{column, row, slider},
     },
     theme,
-    widget::{Space, divider, segmented_control, text, toggler},
+    widget::{Space, segmented_control, text, toggler},
 };
 
 use crate::{
     app::Message,
     ui::{
         sections::settings::components::visualization_theme::{
-            create_color_palette_selector, create_visualization_theme_selector,
+            create_colors_row, create_visualization_theme_selector,
             create_working_animation_selector,
         },
-        views::PopupContentParams,
+        views::{PopupContentParams, section_divider},
     },
 };
 
@@ -31,6 +31,8 @@ pub fn create_applet_settings_section<'a>(params: &PopupContentParams<'a>) -> El
     } = *params;
     let spacing = theme::active().cosmic().spacing;
 
+    // The settings stack with no gap of their own: each row's padding is
+    // the space between two of them, as in COSMIC's own applets.
     let mut settings_column = column![
         // Show icon toggle
         padded_control(
@@ -43,7 +45,6 @@ pub fn create_applet_settings_section<'a>(params: &PopupContentParams<'a>) -> El
             .align_y(Alignment::Center),
         ),
     ]
-    .spacing(spacing.space_xs)
     .width(Length::Fill);
 
     // Icon alignment selector (only show if icon is enabled)
@@ -62,11 +63,7 @@ pub fn create_applet_settings_section<'a>(params: &PopupContentParams<'a>) -> El
         );
     }
 
-    settings_column = settings_column.push(
-        padded_control(divider::horizontal::default())
-            .padding([0, spacing.space_s])
-            .apply(Element::from),
-    );
+    settings_column = settings_column.push(section_divider());
 
     // Last, so the toggle sits right above the settings it hides.
     settings_column = settings_column.push(
@@ -85,33 +82,30 @@ pub fn create_applet_settings_section<'a>(params: &PopupContentParams<'a>) -> El
     // Visualization size slide (only show if the visualization is enabled)
     if config.ui.show_visualization {
         // Width slider
-        settings_column = settings_column.push(
-            column![
-                padded_control(
-                    column![
-                        text::body("Visualization Size"),
-                        row![
-                            text::caption(format!("{}px", config.ui.applet_width)),
-                            slider(60..=300, config.ui.applet_width, Message::SetAppletWidth)
-                                .on_release(Message::AppletWidthSet)
-                                .width(Length::Fill)
-                        ]
-                        .spacing(spacing.space_xs)
-                        .align_y(Alignment::Center),
+        settings_column = settings_column
+            .push(padded_control(
+                column![
+                    text::body("Visualization Size"),
+                    row![
+                        text::caption(format!("{}px", config.ui.applet_width)),
+                        slider(60..=300, config.ui.applet_width, Message::SetAppletWidth)
+                            .on_release(Message::AppletWidthSet)
+                            .width(Length::Fill)
                     ]
-                    .spacing(spacing.space_xxs)
-                    .apply(Element::from)
-                ),
-                create_visualization_theme_selector(&config.visualization.theme, params.is_open),
-                create_working_animation_selector(
-                    config.visualization.working_animation,
-                    params.is_open
-                ),
-                create_color_palette_selector(config.visualization.palette, params.is_open),
-            ]
-            .spacing(spacing.space_xxs)
-            .apply(Element::from),
-        );
+                    .spacing(spacing.space_xs)
+                    .align_y(Alignment::Center),
+                ]
+                .spacing(spacing.space_xxs),
+            ))
+            .push(create_visualization_theme_selector(
+                &config.visualization.theme,
+                params.popup,
+            ))
+            .push(create_working_animation_selector(
+                config.visualization.working_animation,
+                params.popup,
+            ))
+            .push(create_colors_row(config.visualization.palette));
     }
 
     settings_column.apply(Element::from)

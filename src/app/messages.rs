@@ -8,7 +8,7 @@ use crate::config::AppletConfig;
 use crate::features::Feature;
 use crate::models::{
     palette::ColorPalette,
-    state::IsOpen,
+    state::Page,
     theme::{VisualizationTheme, WorkingAnimationTheme},
 };
 
@@ -25,7 +25,13 @@ pub enum Message {
     OpenGitHub,
     /// Open the settings app.
     LaunchApp,
-    RevealerToggle(IsOpen),
+    /// Slide the popup to a page.
+    ShowPage(Page),
+    /// Time passed while the popup slides to a page.
+    PageTurnTick(Instant),
+    /// A popup's surface to open or close, as a dropdown's menu: for
+    /// libcosmic to carry out.
+    Surface(cosmic::surface::Action),
     SetVisualizationTheme(VisualizationTheme),
     /// Pick the working animation style.
     SetWorkingAnimation(WorkingAnimationTheme),

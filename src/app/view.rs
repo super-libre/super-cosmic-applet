@@ -12,7 +12,7 @@ use super::SuperApplet;
 use super::layout::AppletLayout;
 use crate::app::Message;
 use crate::models::state::{DaemonConnectionState, Phase};
-use crate::ui::views::{PopupContentParams, create_popup_content};
+use crate::ui::views::{PopupContentParams, create_popup};
 
 // Cache icon bytes to avoid allocation on every render.
 static NORMAL_ICON: &[u8] = include_bytes!("../../resources/assets/super-cosmic-applet.svg");
@@ -127,12 +127,16 @@ impl SuperApplet {
     }
 
     pub(super) fn view_popup(&self) -> Element<'_, Message> {
-        let content = create_popup_content(&PopupContentParams {
-            links: &self.links,
-            is_open: &self.is_open,
-            config: &self.config,
-            icon_alignment_model: &self.icon_alignment_model,
-        });
+        let content = create_popup(
+            &PopupContentParams {
+                links: &self.links,
+                config: &self.config,
+                icon_alignment_model: &self.icon_alignment_model,
+                popup: self.popup,
+            },
+            self.pages.shown(),
+            self.pages.slide(),
+        );
 
         self.core.applet.popup_container(content).into()
     }

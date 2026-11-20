@@ -2,6 +2,7 @@
 mod init;
 mod layout;
 pub mod messages;
+mod pages;
 mod subscription;
 #[cfg(test)]
 pub(crate) mod testing;
@@ -24,7 +25,7 @@ pub use messages::*;
 use crate::config::AppletConfig;
 use crate::daemon::RetryStrategy;
 use crate::features::Feature;
-use crate::models::state::{DaemonConnectionState, IsOpen, Phase};
+use crate::models::state::{DaemonConnectionState, Phase};
 use crate::models::theme::VisualizationSide;
 use crate::ui::components::sound_visualization::VisualizationComponent;
 use crate::ui::components::working_animation_component::WorkingAnimationComponent;
@@ -143,7 +144,8 @@ pub struct SuperApplet {
     popup: Option<window::Id>,
     audio_level: f32,
     is_speech_detected: bool,
-    is_open: IsOpen,
+    /// The popup's page, and the slide to it while that lasts.
+    pages: pages::Pages,
     /// Which product the panel shows while both are active. Flipped every
     /// `ALTERNATE_SECS`.
     alternate: bool,
@@ -243,6 +245,12 @@ impl cosmic::Application for SuperApplet {
             subs.push(
                 cosmic::iced::time::every(Duration::from_secs(ALTERNATE_SECS))
                     .map(|_| Message::AlternateFront),
+            );
+        }
+        if self.pages.turning() {
+            // Every frame, for a smooth slide.
+            subs.push(
+                cosmic::iced::time::every(Duration::from_millis(16)).map(Message::PageTurnTick),
             );
         }
         if self.size_preview.showing() {
