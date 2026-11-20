@@ -2,7 +2,6 @@
 use crate::{
     app::{Message, ProductLink},
     config::AppletConfig,
-    features::Feature,
     models::state::{DaemonConnectionState, IsOpen},
     ui::sections::{
         app_info::create_app_info_section, launch::create_launch_section,
@@ -23,10 +22,6 @@ pub struct PopupContentParams<'a> {
     pub is_open: &'a IsOpen,
     pub config: &'a AppletConfig,
     pub icon_alignment_model: &'a SingleSelectModel,
-    pub theme_selector_model: &'a SingleSelectModel,
-    pub selected_theme_for_config: bool,
-    /// The product whose settings the tabs show, if any is installed.
-    pub settings_tab: Option<Feature>,
 }
 
 pub fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, Message> {
@@ -53,12 +48,11 @@ pub fn create_popup_content<'a>(params: &PopupContentParams<'a>) -> Element<'a, 
                 .apply(Element::from),
         );
     }
-    // The settings appear once either daemon is connected, with a tab for
-    // each installed product's own.
-    if let Some(tab) = params.settings_tab.filter(|_| any_connected) {
+    // The settings appear once either daemon is connected.
+    if any_connected {
         content = content
             .push(divider())
-            .push(create_applet_settings_section(params, tab));
+            .push(create_applet_settings_section(params));
     }
     content
         .push(divider())

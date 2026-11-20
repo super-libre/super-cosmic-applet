@@ -22,12 +22,6 @@ const MAX_CONTENT_CROSS: f32 = 108.0;
 /// of the "Visualization Size" slider.
 const MIN_CONTENT_MAJOR: f32 = 60.0;
 
-/// How many times the panel's thickness the visualization may run along the
-/// panel. Keeps a large configured size from swallowing a thin panel, up to
-/// the point where `MIN_CONTENT_MAJOR` takes over: below that width there is
-/// nothing worth drawing.
-const MAX_MAJOR_CROSS_RATIO: f32 = 8.0;
-
 /// The applet surface, split into the box the panel sees and the drawable
 /// area inside it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -75,10 +69,11 @@ impl AppletLayout {
         // (or thin enough) to hit them.
         let cross_padding = ((suggested_cross - content_cross) / 2.0).max(0.0);
 
+        // The length the user set is the length the panel gets, so the
+        // slider's number is the applet's real size whatever the panel's
+        // thickness.
         let content_major = if show_visualization {
-            u32_to_f32(visualization_length)
-                .min(content_cross * MAX_MAJOR_CROSS_RATIO)
-                .max(MIN_CONTENT_MAJOR)
+            u32_to_f32(visualization_length).max(MIN_CONTENT_MAJOR)
         } else {
             // Icon-only renders a square; the glyph inside is sized separately.
             content_cross
@@ -237,6 +232,30 @@ mod tests {
         assert_px(layout.total.height, 56.0, "total height");
         assert_px(layout.content.width, 120.0, "content width");
         assert_px(layout.content.height, 40.0, "content height");
+    }
+
+    /// The slider's number is the visualization's real length, at its far
+    /// end and on the thinnest panel too.
+    #[test]
+    fn the_configured_length_is_the_length_on_any_panel() {
+        for anchor in [PanelAnchor::Top, PanelAnchor::Left] {
+            for size in sizes() {
+                let applet = context(size.clone(), anchor);
+                for length in [60, 240, 300] {
+                    let layout = AppletLayout::compute(&applet, true, length);
+                    let along = if layout.horizontal {
+                        layout.content.width
+                    } else {
+                        layout.content.height
+                    };
+                    assert_px(
+                        along,
+                        u32_to_f32(length),
+                        &format!("{size:?}/{anchor:?} {length}px"),
+                    );
+                }
+            }
+        }
     }
 
     /// The same panel on its side: the configured size runs down the panel and

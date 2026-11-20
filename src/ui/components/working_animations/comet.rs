@@ -4,8 +4,8 @@ use std::f32::consts::PI;
 use cosmic::{
     Renderer,
     iced::{
-        Color, Point,
-        widget::canvas::{Frame, path, stroke},
+        Point,
+        widget::canvas::{Fill, Frame, path, stroke},
     },
 };
 
@@ -20,9 +20,7 @@ impl WorkingAnimationRenderer for CometAnimation {
         let WorkingDrawContext {
             bounds,
             elapsed_ms,
-            color_config,
-            is_dark,
-            cosmic_theme,
+            gradient,
             side,
         } = *ctx;
         let (w, h) = (bounds.width, bounds.height);
@@ -31,7 +29,10 @@ impl WorkingAnimationRenderer for CometAnimation {
         }
         let mid_y = bounds.y + h / 2.0;
         let amp = h * 0.30;
-        let base = color_config.get_color_with_theme(is_dark, cosmic_theme);
+        let paint = |alpha: f32| Fill {
+            style: gradient.with_alpha(alpha).center_out(bounds),
+            ..Default::default()
+        };
 
         // Split by side: the comet path/head live in a logical full-width space;
         // this applet renders the `[x_lo, x_lo + w)` slice of it, so the head
@@ -58,12 +59,7 @@ impl WorkingAnimationRenderer for CometAnimation {
         frame.stroke(
             &gb.build(),
             stroke::Stroke {
-                style: stroke::Style::Solid(Color::from_rgba(
-                    base.r,
-                    base.g,
-                    base.b,
-                    base.a * 0.18,
-                )),
+                style: gradient.with_alpha(0.18).center_out(bounds),
                 width: 1.4,
                 ..Default::default()
             },
@@ -83,17 +79,11 @@ impl WorkingAnimationRenderer for CometAnimation {
             let a = 1.0 - (i as f32) / (trail as f32);
             if i == 0 {
                 let glow = path::Path::circle(Point::new(sx, yy), 7.0);
-                frame.fill(
-                    &glow,
-                    Color::from_rgba(base.r, base.g, base.b, base.a * 0.3),
-                );
+                frame.fill(&glow, paint(0.3));
             }
             let r = if i == 0 { 4.0 } else { 2.0 * a + 0.6 };
             let dot = path::Path::circle(Point::new(sx, yy), r);
-            frame.fill(
-                &dot,
-                Color::from_rgba(base.r, base.g, base.b, base.a * a * a * 0.9),
-            );
+            frame.fill(&dot, paint(a * a * 0.9));
         }
     }
 }
@@ -104,19 +94,15 @@ mod comet_tests {
     //! a faint sine guide at 0.11 px/ms. The head enters 20px before the
     //! animation's start and leaves 20px past its end.
     use super::CometAnimation;
-    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, WIDTH, colors, render, render_working, theme,
     };
     use crate::ui::components::working_animations::{WorkingAnimationRenderer, WorkingDrawContext};
+    use cosmic::iced::Color;
 
     fn draw(elapsed_ms: f32, side: &VisualizationSide) -> Pixels {
-        render_working(
-            WorkingAnimationTheme::Comet,
-            elapsed_ms,
-            side,
-            VisualizationColor::White,
-        )
+        render_working(WorkingAnimationTheme::Comet, elapsed_ms, side, Color::WHITE)
     }
 
     /// The elapsed time that puts the head at logical x `head`, on a side
@@ -176,7 +162,7 @@ mod comet_tests {
     #[test]
     fn a_strip_with_no_width_draws_nothing() {
         let theme = theme(true);
-        let colors = colors(VisualizationColor::White);
+        let colors = colors(Color::WHITE);
         let pixels = render(WIDTH, HEIGHT, |frame| {
             CometAnimation.draw(
                 frame,
@@ -186,9 +172,7 @@ mod comet_tests {
                         cosmic::iced::Size::new(0.0, 40.0),
                     ),
                     elapsed_ms: 500.0,
-                    color_config: &colors,
-                    is_dark: true,
-                    cosmic_theme: theme.cosmic(),
+                    gradient: &colors.gradient(theme.cosmic()),
                     side: &VisualizationSide::Full,
                 },
             );

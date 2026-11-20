@@ -38,19 +38,15 @@ mod equalizer_tests {
     //! The bottom equalizer, drawn: bars standing on the strip's bottom edge,
     //! with a 2px margin either side and 1px above.
     use super::EqualizerVisualization;
-    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::models::theme::VisualizationSide;
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, bands, flat_bands, render_visualization,
     };
     use crate::util::usize_to_f32;
+    use cosmic::iced::Color;
 
     fn draw(data: &super_engine_protocol::FrequencyData, side: &VisualizationSide) -> Pixels {
-        render_visualization(
-            &EqualizerVisualization::default(),
-            data,
-            side,
-            VisualizationColor::White,
-        )
+        render_visualization(&EqualizerVisualization::default(), data, side, Color::WHITE)
     }
 
     #[test]

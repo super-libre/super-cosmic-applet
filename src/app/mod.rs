@@ -11,6 +11,8 @@ mod view;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use cosmic::iced::time::Instant;
+
 use cosmic::{
     Element, app as cosmic_app,
     iced::{Subscription, window},
@@ -31,6 +33,57 @@ use subscription::{EventsSubscriptionId, PING_INTERVAL_SECS, events_subscription
 /// How long the panel shows one product's visualization before the other's,
 /// when both are active at once.
 const ALTERNATE_SECS: u64 = 3;
+
+/// How long every applet keeps showing its size after the last change to it.
+const SIZE_PREVIEW_LINGER: Duration = Duration::from_millis(1200);
+
+/// The panel showing the box a visualization fills while its size changes,
+/// so the real size is there to see.
+///
+/// Each applet is its own process, so a change made from one popup reaches
+/// the others only through the settings file. Every applet takes a change to
+/// the size, its own or another's, as a reason to show it for
+/// [`SIZE_PREVIEW_LINGER`]; the applet whose slider is held shows it until
+/// it's let go too. So the Left and Right applets show their sizes together,
+/// whichever popup the slider is in, and stop together.
+#[derive(Debug, Default)]
+struct SizePreview {
+    /// This applet's size slider is held.
+    dragging: bool,
+    /// When the preview ends, unless the size changes again first.
+    until: Option<Instant>,
+}
+
+impl SizePreview {
+    /// The size changed, here or in another applet.
+    fn changed(&mut self, now: Instant) {
+        self.until = Some(now + SIZE_PREVIEW_LINGER);
+    }
+
+    /// This applet's slider moved the size.
+    fn dragged(&mut self, now: Instant) {
+        self.dragging = true;
+        self.changed(now);
+    }
+
+    /// This applet's slider was let go. The preview lingers as the other
+    /// applets' does, so they all end together.
+    fn released(&mut self, now: Instant) {
+        self.dragging = false;
+        self.changed(now);
+    }
+
+    /// Time passed: past the linger, with no slider held, the preview ends.
+    fn tick(&mut self, now: Instant) {
+        if !self.dragging && self.until.is_some_and(|until| now >= until) {
+            self.until = None;
+        }
+    }
+
+    fn showing(&self) -> bool {
+        self.dragging || self.until.is_some()
+    }
+}
 
 /// The applet's link to one product's daemon.
 pub struct ProductLink {
@@ -83,16 +136,6 @@ fn pick_front(active: &[Feature], alternate: bool) -> Option<Feature> {
     }
 }
 
-/// The product whose tab the popup's settings show: the one last picked while
-/// it is installed, else the first installed one.
-fn pick_settings_tab(installed: &[Feature], picked: Feature) -> Option<Feature> {
-    if installed.contains(&picked) {
-        Some(picked)
-    } else {
-        installed.first().copied()
-    }
-}
-
 pub struct SuperApplet {
     core: cosmic::app::Core,
     /// One link per product, in `Feature::ALL` order.
@@ -110,17 +153,13 @@ pub struct SuperApplet {
     visualization: VisualizationComponent,
     working_animation: WorkingAnimationComponent,
     config: AppletConfig,
+    /// Whether the panel shows the visualization's box while nothing fills
+    /// it, because its size is changing.
+    size_preview: SizePreview,
     icon_alignment_model: SingleSelectModel,
     icon_alignment_start: Entity,
     icon_alignment_center: Entity,
     icon_alignment_end: Entity,
-    theme_selector_model: SingleSelectModel,
-    theme_selector_light: Entity,
-    theme_selector_dark: Entity,
-    selected_theme_for_config: bool, // false = light, true = dark
-    /// The settings tab last picked. The popup falls back to another
-    /// installed product's while this one isn't installed.
-    picked_settings_tab: Feature,
     /// Where the settings are saved, and watched for the other applets'
     /// changes.
     settings_dir: PathBuf,
@@ -149,19 +188,6 @@ impl SuperApplet {
     /// The product whose activity the panel shows, if any is active.
     fn front(&self) -> Option<Feature> {
         pick_front(&self.active_products(), self.alternate)
-    }
-
-    fn installed_products(&self) -> Vec<Feature> {
-        self.links
-            .iter()
-            .filter(|l| l.installed)
-            .map(|l| l.product)
-            .collect()
-    }
-
-    /// The product whose settings the popup shows, if any is installed.
-    fn settings_tab(&self) -> Option<Feature> {
-        pick_settings_tab(&self.installed_products(), self.picked_settings_tab)
     }
 }
 
@@ -219,6 +245,11 @@ impl cosmic::Application for SuperApplet {
                     .map(|_| Message::AlternateFront),
             );
         }
+        if self.size_preview.showing() {
+            subs.push(
+                cosmic::iced::time::every(Duration::from_millis(100)).map(Message::SizePreviewTick),
+            );
+        }
         if self
             .front()
             .is_some_and(|p| self.link(p).phase.is_working())
@@ -250,7 +281,7 @@ impl cosmic::Application for SuperApplet {
 
 #[cfg(test)]
 mod tests {
-    use super::{pick_front, pick_settings_tab};
+    use super::pick_front;
     use crate::features::Feature::{Stt, Tts};
 
     #[test]
@@ -261,23 +292,6 @@ mod tests {
         let _ = applet.panel();
         assert!(applet.link(Stt).installed && applet.link(Tts).installed);
         assert_eq!(applet.saved(), None, "nothing changed, so nothing saved");
-    }
-
-    #[test]
-    fn the_picked_settings_tab_stays_while_its_product_is_installed() {
-        assert_eq!(pick_settings_tab(&[Stt, Tts], Tts), Some(Tts));
-        assert_eq!(pick_settings_tab(&[Tts], Tts), Some(Tts));
-    }
-
-    #[test]
-    fn a_settings_tab_for_a_removed_product_falls_back_to_an_installed_one() {
-        assert_eq!(pick_settings_tab(&[Stt], Tts), Some(Stt));
-        assert_eq!(pick_settings_tab(&[Tts], Stt), Some(Tts));
-    }
-
-    #[test]
-    fn with_nothing_installed_there_is_no_settings_tab() {
-        assert_eq!(pick_settings_tab(&[], Stt), None);
     }
 
     #[test]

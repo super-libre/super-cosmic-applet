@@ -64,6 +64,35 @@ impl SuperApplet {
             .on_press(Message::TogglePopup);
 
             self.core.applet.autosize_window(working_element).into()
+        } else if self.size_preview.showing() {
+            // While the size slider moves, the box a visualization fills shows
+            // as a soft block, so its real size is there to see.
+            let preview = mouse_area(
+                container(
+                    container(widget::Space::new())
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .style(|theme: &cosmic::Theme| container::Style {
+                            background: Some(cosmic::iced::Background::Color(
+                                cosmic::iced::Color {
+                                    a: 0.22,
+                                    ..theme.cosmic().on_bg_color().into()
+                                },
+                            )),
+                            border: cosmic::iced::Border {
+                                radius: theme.cosmic().corner_radii.radius_s.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }),
+                )
+                .width(Length::Fixed(layout.total.width))
+                .height(Length::Fixed(layout.total.height))
+                .padding(layout.padding),
+            )
+            .on_press(Message::TogglePopup);
+
+            self.core.applet.autosize_window(preview).into()
         } else {
             // The error glyph is monochrome line art and must follow the panel
             // theme to stay legible; the normal logo is full-color artwork that
@@ -103,9 +132,6 @@ impl SuperApplet {
             is_open: &self.is_open,
             config: &self.config,
             icon_alignment_model: &self.icon_alignment_model,
-            theme_selector_model: &self.theme_selector_model,
-            selected_theme_for_config: self.selected_theme_for_config,
-            settings_tab: self.settings_tab(),
         });
 
         self.core.applet.popup_container(content).into()
@@ -173,7 +199,8 @@ mod panel_tests {
     use crate::app::{DaemonMessage, Message};
     use crate::features::Feature::{Stt, Tts};
     use crate::ui::simulator::{Simulator, draws_anything, every_click};
-    use cosmic::iced::Size;
+    use cosmic::iced::{Size, time::Instant};
+    use std::time::Duration;
 
     /// Room for the panel's box, whatever the default panel makes it.
     const PANEL: Size = Size::new(400.0, 120.0);
@@ -286,6 +313,74 @@ mod panel_tests {
         assert!(draws_anything(&drawn));
         assert_ne!(drawn, icon, "transcribing still drew the icon");
         assert_eq!(every_click(|| applet.panel()), ["TogglePopup"]);
+    }
+
+    /// How wide what the panel draws is, in pixels.
+    fn drawn_width(applet: &TestApplet) -> usize {
+        let shot = screenshot(applet);
+        (0..400)
+            .filter(|x| (0..120).any(|y| shot[(y * 400 + x) * 4 + 3] > 0))
+            .count()
+    }
+
+    /// Well past the preview's linger.
+    fn later() -> Message {
+        Message::SizePreviewTick(Instant::now() + Duration::from_secs(5))
+    }
+
+    /// An applet with the icon hidden, so idle it draws nothing.
+    fn invisible() -> TestApplet {
+        let mut applet = connected();
+        applet.send(Message::SetShowIcon(false));
+        assert_eq!(drawn_width(&applet), 0);
+        applet
+    }
+
+    /// Dragging the size slider shows the box a visualization will fill, at
+    /// the size set, for as long as the slider is held and a moment after.
+    #[test]
+    fn dragging_the_size_slider_shows_the_applets_real_size() {
+        let mut applet = invisible();
+
+        applet.send(Message::SetAppletWidth(200));
+        assert!((199..=201).contains(&drawn_width(&applet)), "not 200px");
+        assert_eq!(every_click(|| applet.panel()), ["TogglePopup"]);
+
+        applet.send(later());
+        assert!(drawn_width(&applet) > 0, "gone while the slider is held");
+
+        applet.send(Message::AppletWidthSet);
+        assert!(drawn_width(&applet) > 0, "gone the moment it was let go");
+        applet.send(later());
+        assert_eq!(drawn_width(&applet), 0, "the preview stayed");
+    }
+
+    /// The Left and Right applets show their sizes together: a size another
+    /// applet's slider saved shows here too, then goes.
+    #[test]
+    fn another_applets_resize_shows_the_size_here_too() {
+        let mut applet = invisible();
+        let mut theirs = applet.config().clone();
+        theirs.ui.applet_width = 220;
+
+        applet.send(Message::SettingsChanged(theirs));
+        assert!((219..=221).contains(&drawn_width(&applet)), "not 220px");
+
+        applet.send(Message::SizePreviewTick(Instant::now()));
+        assert!(drawn_width(&applet) > 0, "gone before the linger was up");
+        applet.send(later());
+        assert_eq!(drawn_width(&applet), 0, "the preview stayed");
+    }
+
+    /// Only a change of size shows it: another applet's new colors don't.
+    #[test]
+    fn another_applets_other_changes_show_no_size() {
+        let mut applet = invisible();
+        let mut theirs = applet.config().clone();
+        theirs.visualization.palette = crate::models::palette::ColorPalette::Harbor;
+
+        applet.send(Message::SettingsChanged(theirs));
+        assert_eq!(drawn_width(&applet), 0);
     }
 
     #[test]

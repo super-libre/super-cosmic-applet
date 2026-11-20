@@ -6,7 +6,7 @@ use crate::ui::components::visualizations::{
 use crate::util::usize_to_f32;
 use cosmic::iced::{
     Padding, Point, Radius,
-    widget::canvas::{Fill, Frame, path, stroke},
+    widget::canvas::{Fill, Frame, path},
 };
 
 /// A horizontal line pulse that grows in height/thickness with audio intensity
@@ -37,9 +37,7 @@ impl VisualizationRenderer for PulseVisualization {
         let DrawContext {
             bounds,
             frequency_data,
-            color_config,
-            is_dark,
-            cosmic_theme,
+            gradient,
             ..
         } = *ctx;
         let effective_bounds = self.config.effective_bounds(bounds);
@@ -94,13 +92,11 @@ impl VisualizationRenderer for PulseVisualization {
             border_radius.into(),
         );
 
-        let base = color_config.get_color_with_theme(is_dark, cosmic_theme);
-
         let path = path_builder.build();
         frame.fill(
             &path,
             Fill {
-                style: stroke::Style::Solid(base),
+                style: gradient.center_out(bounds),
                 ..Default::default()
             },
         );
@@ -112,10 +108,11 @@ mod pulse_tests {
     //! The pulse, drawn: one pill across the strip, 2px in from every edge,
     //! thickening with the energy in the vocal bands.
     use super::PulseVisualization;
-    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::models::theme::VisualizationSide;
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, bands, flat_bands, render_visualization,
     };
+    use cosmic::iced::Color;
     use super_engine_protocol::FrequencyData;
 
     fn draw(data: &FrequencyData) -> Pixels {
@@ -123,7 +120,7 @@ mod pulse_tests {
             &PulseVisualization::default(),
             data,
             &VisualizationSide::Full,
-            VisualizationColor::White,
+            Color::WHITE,
         )
     }
 

@@ -18,7 +18,10 @@ use crate::{
         MAX_AUDIO_FREQUENCY, MAX_VISUALIZATION_WAVE_FREQUENCY, MIN_AUDIO_FREQUENCY,
         MIN_VISUALIZATION_WAVE_FREQUENCY,
     },
-    models::theme::{VisualizationColorConfig, VisualizationSide, VisualizationTheme},
+    models::{
+        palette::ProductColors,
+        theme::{VisualizationSide, VisualizationTheme},
+    },
     ui::components::visualizations::{
         CenteredBarsVisualization, DrawContext, EqualizerVisualization, PulseVisualization,
         VisualizationRenderer, WaveformVisualization,
@@ -33,7 +36,7 @@ pub struct VisualizationComponent {
     visualization_theme: VisualizationTheme,
     visualization_side: VisualizationSide,
     frequency_data: FrequencyData,
-    visualization_colors: VisualizationColorConfig,
+    visualization_colors: ProductColors,
     smoothed_visualization_frequency: f32, // Smoothed wave frequency for stable visualization
 }
 
@@ -44,7 +47,7 @@ impl VisualizationComponent {
         &self.visualization_theme
     }
 
-    pub(crate) fn colors(&self) -> &VisualizationColorConfig {
+    pub(crate) fn colors(&self) -> &ProductColors {
         &self.visualization_colors
     }
 
@@ -59,7 +62,7 @@ impl VisualizationComponent {
         is_speech_detected: bool,
         visualization_theme: VisualizationTheme,
         visualization_side: VisualizationSide,
-        visualization_colors: VisualizationColorConfig,
+        visualization_colors: ProductColors,
     ) -> Self {
         Self {
             audio_level: audio_level.clamp(0.0, 1.0),
@@ -148,7 +151,7 @@ impl VisualizationComponent {
     }
 
     /// Update visualization colors without recreating the entire component
-    pub fn update_colors(&mut self, new_colors: VisualizationColorConfig) {
+    pub fn update_colors(&mut self, new_colors: ProductColors) {
         self.visualization_colors = new_colors;
     }
 }
@@ -192,9 +195,7 @@ impl Program<Message, Theme, Renderer> for VisualizationComponent {
             bounds: Rectangle::with_size(bounds.size()),
             frequency_data: &self.frequency_data,
             side: &self.visualization_side,
-            color_config: &self.visualization_colors,
-            is_dark: theme.cosmic().is_dark,
-            cosmic_theme: theme.cosmic(),
+            gradient: &self.visualization_colors.gradient(theme.cosmic()),
         };
 
         match self.visualization_theme {
@@ -482,7 +483,8 @@ mod visualization_component_tests {
     //! to the smoothed wave frequency the renderers read, and what a mic stop
     //! leaves behind.
     use super::*;
-    use crate::models::theme::{VisualizationColorConfig, VisualizationSide, VisualizationTheme};
+    use crate::models::palette::ProductColors;
+    use crate::models::theme::{VisualizationSide, VisualizationTheme};
 
     fn component() -> VisualizationComponent {
         VisualizationComponent::new(
@@ -490,7 +492,7 @@ mod visualization_component_tests {
             false,
             VisualizationTheme::Waveform,
             VisualizationSide::Full,
-            VisualizationColorConfig::default(),
+            ProductColors::default(),
         )
     }
 
@@ -590,17 +592,14 @@ mod drawing_tests {
     //! The component as its canvas draws it: in the style it was given, the
     //! theme's color, wherever the canvas sits in the applet's window.
     use super::*;
-    use crate::models::theme::VisualizationColor;
     use crate::ui::components::visualizations::test_support::{
-        HEIGHT, Pixels, WIDTH, colors, render, render_program, rgb, same_color, theme,
+        HEIGHT, Pixels, WIDTH, colors, render, render_program, rgb, theme,
     };
     use crate::util::{u32_to_f32, usize_to_f32};
+    use cosmic::iced::Color;
     use cosmic::iced::Size;
 
-    fn component(
-        style: VisualizationTheme,
-        colors: VisualizationColorConfig,
-    ) -> VisualizationComponent {
+    fn component(style: VisualizationTheme, colors: ProductColors) -> VisualizationComponent {
         let mut component =
             VisualizationComponent::new(0.0, false, style, VisualizationSide::Full, colors);
         let bands: Vec<f32> = (0..32).map(|i| 0.5 + usize_to_f32(i % 5) * 0.5).collect();
@@ -634,7 +633,7 @@ mod drawing_tests {
             VisualizationTheme::BottomEqualizer,
             VisualizationTheme::Waveform,
         ] {
-            let component = component(style.clone(), colors(VisualizationColor::White));
+            let component = component(style.clone(), colors(Color::WHITE));
             let at_origin = draw_at(&component, 0.0, 0.0, true);
             let padded = draw_at(&component, 12.0, 6.0, true);
             assert!(at_origin.painted() > 0);
@@ -649,7 +648,7 @@ mod drawing_tests {
     #[test]
     fn it_draws_the_style_it_was_given() {
         let theme = theme(true);
-        let colors = colors(VisualizationColor::White);
+        let colors = colors(Color::WHITE);
         let strip = Rectangle::with_size(Size::new(u32_to_f32(WIDTH), u32_to_f32(HEIGHT)));
         let styles: [(VisualizationTheme, &dyn VisualizationRenderer); 4] = [
             (VisualizationTheme::Pulse, &PulseVisualization::default()),
@@ -675,9 +674,7 @@ mod drawing_tests {
                         bounds: strip,
                         frequency_data: &component.frequency_data,
                         side: &VisualizationSide::Full,
-                        color_config: &colors,
-                        is_dark: true,
-                        cosmic_theme: theme.cosmic(),
+                        gradient: &colors.gradient(theme.cosmic()),
                     },
                 );
             });
@@ -689,30 +686,38 @@ mod drawing_tests {
         }
     }
 
+    /// It draws its palette in the shades of the theme it's on: nearer the
+    /// dark panel's gradient on a dark theme, the light panel's on a light
+    /// one.
     #[test]
-    fn it_paints_the_color_set_for_the_themes_darkness() {
+    fn it_paints_its_palette_in_the_themes_shades() {
+        use crate::features::Feature;
+        use crate::models::palette::{ColorPalette, accent_of};
         let component = component(
             VisualizationTheme::CenteredEqualizer,
-            VisualizationColorConfig {
-                light_colors: VisualizationColor::Red,
-                dark_colors: VisualizationColor::Blue,
-            },
+            ProductColors::Palette(ColorPalette::Harbor, Feature::Tts),
         );
-        let dark = draw_at(&component, 0.0, 0.0, true).paint_color();
-        let light = draw_at(&component, 0.0, 0.0, false).paint_color();
-        assert!(
-            same_color(dark, rgb(VisualizationColor::Blue.to_color())),
-            "{dark:?}"
-        );
-        assert!(
-            same_color(light, rgb(VisualizationColor::Red.to_color())),
-            "{light:?}"
-        );
+        let middle = |is_dark: bool| {
+            let theme = theme(is_dark);
+            let gradient =
+                ColorPalette::Harbor.gradient(Feature::Tts, is_dark, accent_of(theme.cosmic()));
+            rgb(gradient.stops[3])
+        };
+        let near = |a: [f32; 3], b: [f32; 3]| -> f32 {
+            a.iter().zip(b).map(|(x, y)| (x - y).powi(2)).sum()
+        };
+        for is_dark in [true, false] {
+            let painted = draw_at(&component, 0.0, 0.0, is_dark).paint_color();
+            assert!(
+                near(painted, middle(is_dark)) < near(painted, middle(!is_dark)),
+                "dark {is_dark}: {painted:?}"
+            );
+        }
     }
 
     #[test]
     fn a_cleared_component_draws_like_a_new_one() {
-        let colors = colors(VisualizationColor::White);
+        let colors = colors(Color::WHITE);
         let mut used = component(VisualizationTheme::BottomEqualizer, colors.clone());
         used.clear();
         let fresh = VisualizationComponent::new(
@@ -732,7 +737,7 @@ mod drawing_tests {
     /// for a louder level.
     #[test]
     fn a_bare_audio_level_still_draws_its_loudness() {
-        let colors = colors(VisualizationColor::White);
+        let colors = colors(Color::WHITE);
         let mut component = VisualizationComponent::new(
             0.0,
             false,
@@ -750,7 +755,7 @@ mod drawing_tests {
     #[test]
     fn it_becomes_a_canvas_element() {
         let element: Element<'_, Message> =
-            component(VisualizationTheme::Pulse, colors(VisualizationColor::White)).into();
+            component(VisualizationTheme::Pulse, colors(Color::WHITE)).into();
         drop(element);
     }
 }

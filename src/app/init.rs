@@ -11,6 +11,7 @@ use crate::app::{DaemonMessage, Message};
 use crate::config::AppletConfig;
 use crate::daemon::ping_daemon;
 use crate::features::Feature;
+use crate::models::palette::ProductColors;
 use crate::models::state::IsOpen;
 use crate::models::theme::{IconAlignment, VisualizationSide};
 use crate::ui::components::sound_visualization::VisualizationComponent;
@@ -34,20 +35,6 @@ fn build_icon_alignment_model(
         IconAlignment::End => end,
     });
     (model, start, center, end)
-}
-
-/// Build the color-config theme selector, activating the dark or light
-/// entry to match the current system theme.
-fn build_theme_selector_model(is_dark: bool) -> (SingleSelectModel, Entity, Entity) {
-    let mut model = SingleSelectModel::default();
-    let light = model.insert().text("Light Theme").id();
-    let dark = model.insert().text("Dark Theme").id();
-    if is_dark {
-        model.activate(dark);
-    } else {
-        model.activate(light);
-    }
-    (model, light, dark)
 }
 
 /// Ping `product`'s daemon, reporting a success as connected and a failure
@@ -94,27 +81,21 @@ impl SuperApplet {
     ) -> (Self, cosmic_app::Task<Message>) {
         // Nothing is in front yet: the first product to become active swaps
         // its own look in (`sync_shown`).
-        let look = config.visualization.product(Feature::Stt);
+        let look = &config.visualization;
+        let colors = ProductColors::Palette(look.palette, Feature::Stt);
         let visualization = VisualizationComponent::new(
             0.0,
             false,
             look.theme.clone(),
             visualization_side.clone(),
-            look.colors.clone(),
+            colors,
         );
 
-        let working_animation = WorkingAnimationComponent::new(
-            look.working_animation,
-            visualization_side,
-            look.colors.clone(),
-        );
+        let working_animation =
+            WorkingAnimationComponent::new(look.working_animation, visualization_side, colors);
 
         let (icon_alignment_model, icon_alignment_start, icon_alignment_center, icon_alignment_end) =
             build_icon_alignment_model(config.ui.icon_alignment);
-
-        let is_dark = cosmic::theme::active().cosmic().is_dark;
-        let (theme_selector_model, theme_selector_light, theme_selector_dark) =
-            build_theme_selector_model(is_dark);
 
         let applet = Self {
             core,
@@ -128,15 +109,11 @@ impl SuperApplet {
             visualization,
             working_animation,
             config,
+            size_preview: super::SizePreview::default(),
             icon_alignment_model,
             icon_alignment_start,
             icon_alignment_center,
             icon_alignment_end,
-            theme_selector_model,
-            theme_selector_light,
-            theme_selector_dark,
-            selected_theme_for_config: is_dark,
-            picked_settings_tab: Feature::Stt,
             settings_dir,
             is_installed,
         };

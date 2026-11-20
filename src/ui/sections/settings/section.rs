@@ -12,24 +12,18 @@ use cosmic::{
 
 use crate::{
     app::Message,
-    features::Feature,
     ui::{
-        components::tabs::product_tabs,
         sections::settings::components::visualization_theme::{
-            create_visualization_color_selector, create_visualization_theme_selector,
+            create_color_palette_selector, create_visualization_theme_selector,
             create_working_animation_selector,
         },
         views::PopupContentParams,
     },
 };
 
-/// The applet's settings. The panel's own (the icon, the visualization's
-/// size) come first and are shared; how each product's activity is drawn sits
-/// below them, under a tab per installed product, showing `tab`'s.
-pub fn create_applet_settings_section<'a>(
-    params: &PopupContentParams<'a>,
-    tab: Feature,
-) -> Element<'a, Message> {
+/// The applet's settings: the icon, then the visualization. Both products
+/// draw in the same style and animation; the palette gives each its color.
+pub fn create_applet_settings_section<'a>(params: &PopupContentParams<'a>) -> Element<'a, Message> {
     let PopupContentParams {
         config,
         icon_alignment_model,
@@ -74,7 +68,7 @@ pub fn create_applet_settings_section<'a>(
             .apply(Element::from),
     );
 
-    // Last, so the toggle sits right above the tabs it hides.
+    // Last, so the toggle sits right above the settings it hides.
     settings_column = settings_column.push(
         // Show visualizations toggle
         padded_control(
@@ -99,6 +93,7 @@ pub fn create_applet_settings_section<'a>(
                         row![
                             text::caption(format!("{}px", config.ui.applet_width)),
                             slider(60..=300, config.ui.applet_width, Message::SetAppletWidth)
+                                .on_release(Message::AppletWidthSet)
                                 .width(Length::Fill)
                         ]
                         .spacing(spacing.space_xs)
@@ -107,7 +102,12 @@ pub fn create_applet_settings_section<'a>(
                     .spacing(spacing.space_xxs)
                     .apply(Element::from)
                 ),
-                create_product_settings(params, tab),
+                create_visualization_theme_selector(&config.visualization.theme, params.is_open),
+                create_working_animation_selector(
+                    config.visualization.working_animation,
+                    params.is_open
+                ),
+                create_color_palette_selector(config.visualization.palette, params.is_open),
             ]
             .spacing(spacing.space_xxs)
             .apply(Element::from),
@@ -115,47 +115,6 @@ pub fn create_applet_settings_section<'a>(
     }
 
     settings_column.apply(Element::from)
-}
-
-/// How `tab`'s activity is drawn, under a tab bar of the installed products.
-/// With one product installed there is nothing to switch between, so it gets
-/// no tab bar.
-fn create_product_settings<'a>(
-    params: &PopupContentParams<'a>,
-    tab: Feature,
-) -> Element<'a, Message> {
-    let spacing = theme::active().cosmic().spacing;
-    let look = params.config.visualization.product(tab);
-    let installed: Vec<Feature> = params
-        .links
-        .iter()
-        .filter(|l| l.installed)
-        .map(|l| l.product)
-        .collect();
-
-    let mut settings = column![].spacing(spacing.space_xxs).width(Length::Fill);
-    if installed.len() > 1 {
-        settings = settings.push(padded_control(product_tabs(&installed, tab)));
-    }
-    settings
-        .push(create_visualization_theme_selector(
-            tab,
-            &look.theme,
-            params.is_open,
-        ))
-        .push(create_working_animation_selector(
-            tab,
-            look.working_animation,
-            params.is_open,
-        ))
-        .push(create_visualization_color_selector(
-            tab,
-            &look.colors,
-            params.is_open,
-            params.theme_selector_model,
-            params.selected_theme_for_config,
-        ))
-        .apply(Element::from)
 }
 
 #[cfg(test)]
@@ -189,30 +148,33 @@ mod settings_section_tests {
         assert!(shows(&applet, "Show Icon"));
     }
 
+    /// One set of visualization settings, whatever is installed: the
+    /// palette is what sets the products apart.
     #[test]
-    fn the_product_tabs_show_only_with_both_installed() {
-        let mut one = TestApplet::new(&[Stt]);
-        one.connect(Stt);
-        let texts = popup_texts(&one);
-        assert!(!texts.iter().any(|t| t == "Speech to text"), "{texts:?}");
-        assert!(
-            texts.iter().any(|t| t == "Visualization Style"),
-            "{texts:?}"
-        );
-
-        let texts = popup_texts(&connected());
-        assert!(texts.iter().any(|t| t == "Speech to text"), "{texts:?}");
-        assert!(texts.iter().any(|t| t == "Text to speech"), "{texts:?}");
+    fn there_are_no_product_tabs() {
+        for installed in [&[Stt][..], &[Tts], &[Stt, Tts]] {
+            let mut applet = TestApplet::new(installed);
+            applet.connect(installed[0]);
+            let texts = popup_texts(&applet);
+            for label in ["Visualization Style", "Loading Animation", "Colors"] {
+                assert_eq!(
+                    texts.iter().filter(|t| *t == label).count(),
+                    1,
+                    "{label:?} with {installed:?}: {texts:?}"
+                );
+            }
+        }
     }
 
     #[test]
-    fn the_shared_settings_come_before_the_tabs() {
+    fn the_settings_run_from_the_icon_to_the_colors() {
         let texts = popup_texts(&connected());
         let at = |label: &str| texts.iter().position(|t| t == label).unwrap();
         assert!(at("Show Icon") < at("Icon Position"));
         assert!(at("Icon Position") < at("Show Visualization"));
-        assert!(at("Visualization Size") < at("Speech to text"));
-        assert!(at("Text to speech") < at("Visualization Style"));
+        assert!(at("Visualization Size") < at("Visualization Style"));
+        assert!(at("Visualization Style") < at("Loading Animation"));
+        assert!(at("Loading Animation") < at("Colors"));
     }
 
     #[test]
@@ -230,7 +192,7 @@ mod settings_section_tests {
     }
 
     #[test]
-    fn turning_the_visualization_off_hides_its_settings_and_the_tabs() {
+    fn turning_the_visualization_off_hides_its_settings() {
         let mut applet = connected();
 
         let sent = in_popup(&mut applet, |ui| {
@@ -241,8 +203,9 @@ mod settings_section_tests {
         let texts = popup_texts(&applet);
         for hidden in [
             "Visualization Size",
-            "Speech to text",
             "Visualization Style",
+            "Loading Animation",
+            "Colors",
         ] {
             assert!(
                 !texts.iter().any(|t| t == hidden),

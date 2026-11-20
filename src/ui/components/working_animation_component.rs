@@ -11,7 +11,8 @@ use cosmic::{
 };
 
 use crate::app::Message;
-use crate::models::theme::{VisualizationColorConfig, VisualizationSide, WorkingAnimationTheme};
+use crate::models::palette::ProductColors;
+use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
 use crate::ui::components::working_animations::{self, WorkingDrawContext};
 
 /// Time-driven "working" animation canvas, shown during the transcribing
@@ -20,7 +21,7 @@ use crate::ui::components::working_animations::{self, WorkingDrawContext};
 #[derive(Debug, Clone)]
 pub struct WorkingAnimationComponent {
     theme: WorkingAnimationTheme,
-    colors: VisualizationColorConfig,
+    colors: ProductColors,
     /// Which side this applet renders (fixed per binary variant). Wave-style
     /// animations split on it so the side applets seam at the middle; compact
     /// indicators may ignore it and render in full on every side.
@@ -35,7 +36,7 @@ impl WorkingAnimationComponent {
         self.theme
     }
 
-    pub(crate) fn colors(&self) -> &VisualizationColorConfig {
+    pub(crate) fn colors(&self) -> &ProductColors {
         &self.colors
     }
 
@@ -48,7 +49,7 @@ impl WorkingAnimationComponent {
     pub fn new(
         theme: WorkingAnimationTheme,
         side: VisualizationSide,
-        colors: VisualizationColorConfig,
+        colors: ProductColors,
     ) -> Self {
         Self {
             theme,
@@ -71,7 +72,7 @@ impl WorkingAnimationComponent {
         self.theme = theme;
     }
 
-    pub fn update_colors(&mut self, colors: VisualizationColorConfig) {
+    pub fn update_colors(&mut self, colors: ProductColors) {
         self.colors = colors;
     }
 }
@@ -107,9 +108,7 @@ impl Program<Message, Theme, Renderer> for WorkingAnimationComponent {
             // the drawing to where the canvas sits in the window.
             bounds: Rectangle::with_size(bounds.size()),
             elapsed_ms: self.elapsed_ms,
-            color_config: &self.colors,
-            is_dark: theme.cosmic().is_dark,
-            cosmic_theme: theme.cosmic(),
+            gradient: &self.colors.gradient(theme.cosmic()),
             side: &self.side,
         };
         working_animations::draw(self.theme, &mut frame, &ctx);
@@ -125,7 +124,7 @@ mod working_animation_component_tests {
         WorkingAnimationComponent::new(
             WorkingAnimationTheme::Droplet,
             VisualizationSide::Full,
-            VisualizationColorConfig::default(),
+            ProductColors::default(),
         )
     }
 
@@ -166,16 +165,17 @@ mod drawing_tests {
     //! the moment it was set to, in the theme's color, wherever the canvas
     //! sits in the applet's window.
     use super::*;
-    use crate::models::theme::VisualizationColor;
+    use crate::ui::components::visualizations::test_support::GREEN;
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, WIDTH, colors, render, render_program, rgb, same_color, theme,
     };
     use crate::util::u32_to_f32;
+    use cosmic::iced::Color;
     use cosmic::iced::Size;
 
     fn component(
         animation: WorkingAnimationTheme,
-        colors: VisualizationColorConfig,
+        colors: ProductColors,
     ) -> WorkingAnimationComponent {
         let mut component =
             WorkingAnimationComponent::new(animation, VisualizationSide::Full, colors);
@@ -203,7 +203,7 @@ mod drawing_tests {
     #[test]
     fn it_draws_the_same_wherever_its_canvas_sits() {
         for animation in [WorkingAnimationTheme::Droplet, WorkingAnimationTheme::Comet] {
-            let component = component(animation, colors(VisualizationColor::White));
+            let component = component(animation, colors(Color::WHITE));
             let at_origin = draw_at(&component, 0.0, 0.0, true);
             let padded = draw_at(&component, 12.0, 6.0, true);
             assert!(at_origin.painted() > 0);
@@ -218,7 +218,7 @@ mod drawing_tests {
     #[test]
     fn it_draws_the_animation_it_was_given_at_its_moment() {
         let theme = theme(true);
-        let colors = colors(VisualizationColor::White);
+        let colors = colors(Color::WHITE);
         let strip = Rectangle::with_size(Size::new(u32_to_f32(WIDTH), u32_to_f32(HEIGHT)));
         for animation in [
             WorkingAnimationTheme::Droplet,
@@ -232,9 +232,7 @@ mod drawing_tests {
                     &WorkingDrawContext {
                         bounds: strip,
                         elapsed_ms: 400.0,
-                        color_config: &colors,
-                        is_dark: true,
-                        cosmic_theme: theme.cosmic(),
+                        gradient: &colors.gradient(theme.cosmic()),
                         side: &VisualizationSide::Full,
                     },
                 );
@@ -247,41 +245,43 @@ mod drawing_tests {
         }
     }
 
+    /// It draws its palette in the shades of the theme it's on: nearer the
+    /// dark panel's gradient on a dark theme, the light panel's on a light
+    /// one.
     #[test]
-    fn it_paints_the_color_set_for_the_themes_darkness() {
+    fn it_paints_its_palette_in_the_themes_shades() {
+        use crate::features::Feature;
+        use crate::models::palette::{ColorPalette, accent_of};
         let mut component = component(
             WorkingAnimationTheme::Dots,
-            VisualizationColorConfig {
-                light_colors: VisualizationColor::Red,
-                dark_colors: VisualizationColor::Blue,
-            },
+            ProductColors::Palette(ColorPalette::Harbor, Feature::Tts),
         );
-        let dark = draw_at(&component, 0.0, 0.0, true).paint_color();
-        let light = draw_at(&component, 0.0, 0.0, false).paint_color();
-        assert!(
-            same_color(dark, rgb(VisualizationColor::Blue.to_color())),
-            "{dark:?}"
-        );
-        assert!(
-            same_color(light, rgb(VisualizationColor::Red.to_color())),
-            "{light:?}"
-        );
+        let middle = |is_dark: bool| {
+            let theme = theme(is_dark);
+            let gradient =
+                ColorPalette::Harbor.gradient(Feature::Tts, is_dark, accent_of(theme.cosmic()));
+            rgb(gradient.stops[3])
+        };
+        let near = |a: [f32; 3], b: [f32; 3]| -> f32 {
+            a.iter().zip(b).map(|(x, y)| (x - y).powi(2)).sum()
+        };
+        for is_dark in [true, false] {
+            let painted = draw_at(&component, 0.0, 0.0, is_dark).paint_color();
+            assert!(
+                near(painted, middle(is_dark)) < near(painted, middle(!is_dark)),
+                "dark {is_dark}: {painted:?}"
+            );
+        }
 
-        component.update_colors(colors(VisualizationColor::Green));
+        component.update_colors(colors(GREEN));
         let recolored = draw_at(&component, 0.0, 0.0, true).paint_color();
-        assert!(
-            same_color(recolored, rgb(VisualizationColor::Green.to_color())),
-            "{recolored:?}"
-        );
+        assert!(same_color(recolored, rgb(GREEN)), "{recolored:?}");
     }
 
     #[test]
     fn it_becomes_a_canvas_element() {
-        let element: Element<'_, Message> = component(
-            WorkingAnimationTheme::Dots,
-            colors(VisualizationColor::White),
-        )
-        .into();
+        let element: Element<'_, Message> =
+            component(WorkingAnimationTheme::Dots, colors(Color::WHITE)).into();
         drop(element);
     }
 }

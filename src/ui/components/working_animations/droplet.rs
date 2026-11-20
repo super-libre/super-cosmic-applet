@@ -4,8 +4,8 @@ use std::f32::consts::PI;
 use cosmic::{
     Renderer,
     iced::{
-        Color, Point,
-        widget::canvas::{Frame, path, stroke},
+        Point,
+        widget::canvas::{Fill, Frame, path},
     },
 };
 
@@ -46,6 +46,51 @@ pub(crate) fn droplet_offset(d: f32, half_width: f32, elapsed_ms: f32, h: f32) -
     drop(age_now) + drop(age_now + PERIOD_MS)
 }
 
+/// The line's thickness where the drop lands, and at its far ends.
+const LINE_WIDTH: (f32, f32) = (2.6, 0.7);
+
+/// The glow's thickness where the drop lands, and at its far ends.
+const GLOW_WIDTH: (f32, f32) = (5.0, 1.2);
+
+/// How thick a band of `widths` (at the origin, at the ends) is `d` from the
+/// origin, `half_width` being as far as the line runs: full near the origin,
+/// thinning mostly toward the ends.
+fn taper(widths: (f32, f32), d: f32, half_width: f32) -> f32 {
+    let t = (d / half_width).clamp(0.0, 1.0);
+    let (full, thin) = widths;
+    thin + (full - thin) * (1.0 - t * t)
+}
+
+/// The band along `samples`, each a point and its distance from the
+/// origin, as thick as [`taper`] says there. A stroke has one width, so the
+/// band is a filled outline: one side out along each point's normal, the
+/// other side back.
+fn ribbon(samples: &[(Point, f32)], widths: (f32, f32), half_width: f32) -> path::Path {
+    let last = samples.len().saturating_sub(1);
+    let edge = |i: usize, side: f32| {
+        let (point, d) = samples[i];
+        // The normal to the line here, from its neighbours on either side.
+        let (before, after) = (samples[i.saturating_sub(1)].0, samples[(i + 1).min(last)].0);
+        let (tx, ty) = (after.x - before.x, after.y - before.y);
+        let length = tx.hypot(ty).max(f32::EPSILON);
+        let reach = side * taper(widths, d, half_width) / 2.0;
+        Point::new(point.x - ty / length * reach, point.y + tx / length * reach)
+    };
+    path::Path::new(|builder| {
+        if samples.is_empty() {
+            return;
+        }
+        builder.move_to(edge(0, 1.0));
+        for i in 1..=last {
+            builder.line_to(edge(i, 1.0));
+        }
+        for i in (0..=last).rev() {
+            builder.line_to(edge(i, -1.0));
+        }
+        builder.close();
+    })
+}
+
 pub struct DropletAnimation;
 
 impl WorkingAnimationRenderer for DropletAnimation {
@@ -54,14 +99,11 @@ impl WorkingAnimationRenderer for DropletAnimation {
         let WorkingDrawContext {
             bounds,
             elapsed_ms,
-            color_config,
-            is_dark,
-            cosmic_theme,
+            gradient,
             side,
         } = *ctx;
         let (w, h) = (bounds.width, bounds.height);
         let mid_y = bounds.y + h / 2.0;
-        let base = color_config.get_color_with_theme(is_dark, cosmic_theme);
 
         // Split the ripple by side: the origin sits at the logical centre
         // (`half_width` from each edge of the logical full animation). For a
@@ -70,46 +112,34 @@ impl WorkingAnimationRenderer for DropletAnimation {
         let (wlog, x_lo) = logical_span(side, w);
         let half_width = wlog / 2.0;
 
-        let mut builder = path::Builder::new();
+        // Sample the line every 2px, and at the far edge too, each point with
+        // how far it lies from the ripple's origin.
+        let mut samples = Vec::new();
         let mut lx = 0.0;
-        let mut first = true;
-        while lx <= w {
+        loop {
             let d = (x_lo + lx - half_width).abs();
             let y = droplet_offset(d, half_width, elapsed_ms, h);
-            let p = Point::new(bounds.x + lx, mid_y - y);
-            if first {
-                builder.move_to(p);
-                first = false;
-            } else {
-                builder.line_to(p);
+            samples.push((Point::new(bounds.x + lx, mid_y - y), d));
+            if lx >= w {
+                break;
             }
-            lx += 2.0;
+            lx = (lx + 2.0).min(w);
         }
-        let line = builder.build();
 
-        // Glow approximation: a wide, faint under-stroke beneath the line.
-        frame.stroke(
-            &line,
-            stroke::Stroke {
-                style: stroke::Style::Solid(Color::from_rgba(
-                    base.r,
-                    base.g,
-                    base.b,
-                    base.a * 0.25,
-                )),
-                width: 5.0,
-                line_cap: cosmic::iced::widget::canvas::LineCap::Round,
-                line_join: cosmic::iced::widget::canvas::LineJoin::Round,
+        // Glow approximation: a wide, faint band beneath the line. Both thin
+        // toward the ends, away from the origin; on a side applet only its
+        // outer end, as the inner one meets the other half at the origin.
+        frame.fill(
+            &ribbon(&samples, GLOW_WIDTH, half_width),
+            Fill {
+                style: gradient.with_alpha(0.25).center_out(bounds),
                 ..Default::default()
             },
         );
-        frame.stroke(
-            &line,
-            stroke::Stroke {
-                style: stroke::Style::Solid(base),
-                width: 2.4,
-                line_cap: cosmic::iced::widget::canvas::LineCap::Round,
-                line_join: cosmic::iced::widget::canvas::LineJoin::Round,
+        frame.fill(
+            &ribbon(&samples, LINE_WIDTH, half_width),
+            Fill {
+                style: gradient.center_out(bounds),
                 ..Default::default()
             },
         );
@@ -123,7 +153,10 @@ impl WorkingAnimationRenderer for DropletAnimation {
             let dot = path::Path::circle(Point::new(origin_x, mid_y), 2.4 + 3.0 * impact);
             frame.fill(
                 &dot,
-                Color::from_rgba(base.r, base.g, base.b, base.a * 0.8 * impact),
+                Fill {
+                    style: gradient.with_alpha(0.8 * impact).center_out(bounds),
+                    ..Default::default()
+                },
             );
         }
     }
@@ -173,15 +206,16 @@ mod droplet_drawing_tests {
     //! The droplet, drawn: a line across the middle of the strip that a drop
     //! ripples every 1.9 s, with a flash where it lands. On a side applet
     //! the drop lands on the inner edge, so the two halves ripple as one.
-    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
     use crate::ui::components::visualizations::test_support::{HEIGHT, Pixels, render_working};
+    use cosmic::iced::Color;
 
     fn draw(elapsed_ms: f32, side: &VisualizationSide) -> Pixels {
         render_working(
             WorkingAnimationTheme::Droplet,
             elapsed_ms,
             side,
-            VisualizationColor::White,
+            Color::WHITE,
         )
     }
 
@@ -246,6 +280,30 @@ mod droplet_drawing_tests {
             flash > none * 3 / 2,
             "{flash} with the flash, {none} without"
         );
+    }
+
+    /// The line is full where the drop lands and thins toward its outer
+    /// ends: both ends on a full applet, only the outer end on a side one,
+    /// whose inner end meets the other half at full thickness.
+    #[test]
+    fn the_line_thins_toward_its_outer_ends() {
+        let strip = 0..HEIGHT as i32;
+        for (side, thick, thin) in [
+            (VisualizationSide::Full, 76..84, 0..8),
+            (VisualizationSide::Full, 76..84, 152..160),
+            (VisualizationSide::Left, 152..160, 0..8),
+            (VisualizationSide::Right, 0..8, 152..160),
+        ] {
+            let pixels = draw(1850.0, &side);
+            let (thick, thin) = (
+                pixels.ink_in(thick, strip.clone()),
+                pixels.ink_in(thin, strip.clone()),
+            );
+            assert!(
+                thick > thin * 2,
+                "{side:?}: {thick} ink where it lands, {thin} at the outer end"
+            );
+        }
     }
 
     #[test]

@@ -46,9 +46,7 @@ impl VisualizationRenderer for WaveformVisualization {
             bounds,
             frequency_data,
             side,
-            color_config,
-            is_dark,
-            cosmic_theme,
+            gradient,
         } = *ctx;
         let effective_bounds = self.config.effective_bounds(bounds);
 
@@ -59,18 +57,11 @@ impl VisualizationRenderer for WaveformVisualization {
         let wave_points = compute_wave_points(&control_points, effective_bounds);
         let (stroke_path, fill_path) = build_paths(&wave_points, bottom_y);
 
-        let base = color_config.get_color_with_theme(is_dark, cosmic_theme);
-
         // Filled area under the curve, with transparency.
         frame.fill(
             &fill_path,
             Fill {
-                style: stroke::Style::Solid(cosmic::iced::Color::from_rgba(
-                    base.r,
-                    base.g,
-                    base.b,
-                    base.a * FILL_OPACITY,
-                )),
+                style: gradient.with_alpha(FILL_OPACITY).bottom_to_top(bounds),
                 ..Default::default()
             },
         );
@@ -79,7 +70,7 @@ impl VisualizationRenderer for WaveformVisualization {
         frame.stroke(
             &stroke_path,
             stroke::Stroke {
-                style: stroke::Style::Solid(base),
+                style: gradient.bottom_to_top(bounds),
                 width: STROKE_WIDTH,
                 line_cap: cosmic::iced::widget::canvas::LineCap::Round,
                 line_join: cosmic::iced::widget::canvas::LineJoin::Round,
@@ -582,18 +573,14 @@ mod waveform_drawing_tests {
     //! The waveform, drawn: a curve over the bottom edge, with a 1px margin
     //! above and below, and a fainter fill under it.
     use super::WaveformVisualization;
-    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::models::theme::VisualizationSide;
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, bands, flat_bands, render_visualization,
     };
+    use cosmic::iced::Color;
 
     fn draw(data: &super_engine_protocol::FrequencyData, side: &VisualizationSide) -> Pixels {
-        render_visualization(
-            &WaveformVisualization::default(),
-            data,
-            side,
-            VisualizationColor::White,
-        )
+        render_visualization(&WaveformVisualization::default(), data, side, Color::WHITE)
     }
 
     /// Bands 12 to 19 loud, the rest silent: a hump in the middle.

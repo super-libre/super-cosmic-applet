@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use cosmic::{iced::window, widget::segmented_button::Entity};
+use cosmic::{
+    iced::{time::Instant, window},
+    widget::segmented_button::Entity,
+};
 
 use crate::config::AppletConfig;
 use crate::features::Feature;
 use crate::models::{
+    palette::ColorPalette,
     state::IsOpen,
-    theme::{VisualizationColor, VisualizationTheme, WorkingAnimationTheme},
+    theme::{VisualizationTheme, WorkingAnimationTheme},
 };
 
 #[derive(Debug, Clone)]
@@ -22,17 +26,20 @@ pub enum Message {
     /// Open the settings app.
     LaunchApp,
     RevealerToggle(IsOpen),
-    /// Show this product's tab of the per-product settings.
-    SelectSettingsTab(Feature),
-    SetVisualizationTheme(Feature, VisualizationTheme),
+    SetVisualizationTheme(VisualizationTheme),
     /// Pick the working animation style.
-    SetWorkingAnimation(Feature, WorkingAnimationTheme),
+    SetWorkingAnimation(WorkingAnimationTheme),
+    /// Pick the pair of colors the products draw in.
+    SetColorPalette(ColorPalette),
     SetAppletWidth(u32),
+    /// The size slider was let go.
+    AppletWidthSet,
+    /// Time passed while the panel shows the applet's size: past the linger,
+    /// it stops.
+    SizePreviewTick(Instant),
     SetShowIcon(bool),
     SetIconAlignmentEntity(Entity),
     SetShowVisualizations(bool),
-    SetVisualizationColor(Feature, VisualizationColor, bool), // Color and is_dark flag
-    SetColorThemeEntity(Entity), // Theme selector for color configuration
     /// The settings file changed: another applet, or a hand edit, saved it.
     SettingsChanged(AppletConfig),
     /// Animation frame tick while a product works (drives the working animation).

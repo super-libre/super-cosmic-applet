@@ -4,5 +4,4 @@ mod lenient;
 pub mod settings;
 
 pub use constants::*;
-pub use lenient::variant_or_default;
 pub use settings::*;

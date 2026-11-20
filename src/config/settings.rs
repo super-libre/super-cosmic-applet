@@ -5,9 +5,8 @@
 //! popup shows in all of them.
 use super::lenient::variant_or_default;
 use crate::features::{CLIENT_NAME, Feature};
-use crate::models::theme::{
-    IconAlignment, VisualizationColorConfig, VisualizationTheme, WorkingAnimationTheme,
-};
+use crate::models::palette::ColorPalette;
+use crate::models::theme::{IconAlignment, VisualizationTheme, WorkingAnimationTheme};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -31,43 +30,20 @@ pub struct AppletConfig {
     pub ui: UiConfig,
 }
 
+/// How the panel draws both products' activity: one style and one working
+/// animation, in a pair of colors that tells the two products apart.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VisualizationConfig {
-    /// How the panel draws speech to text's recording and transcribing.
-    pub stt: ProductVisualization,
-    /// How the panel draws text to speech's speech and synthesizing.
-    pub tts: ProductVisualization,
-}
-
-impl VisualizationConfig {
-    pub fn product(&self, product: Feature) -> &ProductVisualization {
-        match product {
-            Feature::Stt => &self.stt,
-            Feature::Tts => &self.tts,
-        }
-    }
-
-    pub fn product_mut(&mut self, product: Feature) -> &mut ProductVisualization {
-        match product {
-            Feature::Stt => &mut self.stt,
-            Feature::Tts => &mut self.tts,
-        }
-    }
-}
-
-/// How the panel draws one product's activity, so the two can be told apart
-/// when both are active and the panel switches between them.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ProductVisualization {
-    #[serde(default, deserialize_with = "variant_or_default")]
+    #[serde(deserialize_with = "variant_or_default")]
     pub theme: VisualizationTheme,
-    /// Animation shown while the product works: transcribing for speech to text,
-    /// synthesizing the first audio for text to speech.
-    #[serde(default, deserialize_with = "variant_or_default")]
+    /// Animation shown while a product works: transcribing for speech to
+    /// text, synthesizing the first audio for text to speech.
+    #[serde(deserialize_with = "variant_or_default")]
     pub working_animation: WorkingAnimationTheme,
-    #[serde(default)]
-    pub colors: VisualizationColorConfig,
+    /// The pair of colors the products draw in, one each.
+    #[serde(deserialize_with = "variant_or_default")]
+    pub palette: ColorPalette,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -192,9 +168,10 @@ mod working_animation_config_tests {
     #[test]
     fn default_working_animation_is_droplet() {
         let cfg = AppletConfig::default();
-        for look in [&cfg.visualization.stt, &cfg.visualization.tts] {
-            assert_eq!(look.working_animation, WorkingAnimationTheme::Droplet);
-        }
+        assert_eq!(
+            cfg.visualization.working_animation,
+            WorkingAnimationTheme::Droplet
+        );
     }
 
     #[test]
@@ -214,35 +191,28 @@ mod working_animation_config_tests {
         );
         let (cfg, was_reset) = AppletConfig::parse_or_reset(&without);
         assert!(!was_reset, "old settings must still parse:\n{without}");
-        for look in [&cfg.visualization.stt, &cfg.visualization.tts] {
-            assert_eq!(look.working_animation, WorkingAnimationTheme::Droplet);
-        }
+        assert_eq!(
+            cfg.visualization.working_animation,
+            WorkingAnimationTheme::Droplet
+        );
     }
 }
 
 #[cfg(test)]
 mod settings_file_tests {
     //! `settings.ron`, as the applet saves it and as a hand edit may leave it.
-    use super::{AppletConfig, ProductVisualization};
-    use crate::models::theme::{
-        IconAlignment, VisualizationColor, VisualizationTheme, WorkingAnimationTheme,
-    };
+    use super::{AppletConfig, VisualizationConfig};
+    use crate::models::palette::ColorPalette;
+    use crate::models::theme::{IconAlignment, VisualizationTheme, WorkingAnimationTheme};
 
     #[test]
     fn every_setting_survives_a_save() {
         let mut cfg = AppletConfig::default();
-        cfg.visualization.stt = ProductVisualization {
+        cfg.visualization = VisualizationConfig {
             theme: VisualizationTheme::Waveform,
             working_animation: WorkingAnimationTheme::Comet,
-            ..ProductVisualization::default()
+            palette: ColorPalette::CitrusAndSea,
         };
-        cfg.visualization.stt.colors.dark_colors = VisualizationColor::Blue;
-        cfg.visualization.tts = ProductVisualization {
-            theme: VisualizationTheme::Pulse,
-            working_animation: WorkingAnimationTheme::Dots,
-            ..ProductVisualization::default()
-        };
-        cfg.visualization.tts.colors.light_colors = VisualizationColor::DarkOrange;
         cfg.ui.show_icon = false;
         cfg.ui.icon_alignment = IconAlignment::Center;
         cfg.ui.applet_width = 210;
@@ -271,21 +241,49 @@ mod settings_file_tests {
     fn an_unknown_value_falls_back_without_a_reset() {
         let (cfg, was_reset) = AppletConfig::parse_or_reset(
             "(
-                visualization: (
-                    stt: (theme: Nonexistent, colors: (light_colors: Blue)),
-                ),
+                visualization: (theme: Nonexistent, palette: Rainbow, working_animation: Comet),
                 ui: (icon_alignment: sideways, applet_width: 150),
             )",
         );
 
         assert!(!was_reset, "one bad value must not cost the whole file");
-        assert_eq!(cfg.visualization.stt.theme, VisualizationTheme::default());
+        assert_eq!(cfg.visualization.theme, VisualizationTheme::default());
+        assert_eq!(cfg.visualization.palette, ColorPalette::default());
         assert_eq!(
-            cfg.visualization.stt.colors.light_colors,
-            VisualizationColor::Blue
+            cfg.visualization.working_animation,
+            WorkingAnimationTheme::Comet
         );
         assert_eq!(cfg.ui.icon_alignment, IconAlignment::default());
         assert_eq!(cfg.ui.applet_width, 150);
+    }
+
+    /// Releases before the palettes set each product's look apart. Such a
+    /// file still loads, keeping its other settings, with the shared look at
+    /// its defaults.
+    #[test]
+    fn a_file_with_a_look_per_product_still_loads() {
+        let (cfg, was_reset) = AppletConfig::parse_or_reset(
+            "(
+                visualization: (
+                    stt: (
+                        theme: BottomEqualizer,
+                        working_animation: Droplet,
+                        colors: (light_colors: DarkViolet, dark_colors: SystemAccent),
+                    ),
+                    tts: (
+                        theme: Pulse,
+                        working_animation: Comet,
+                        colors: (light_colors: Orange, dark_colors: SystemAccent),
+                    ),
+                ),
+                ui: (show_icon: false, applet_width: 300),
+            )",
+        );
+
+        assert!(!was_reset, "an old file must not reset");
+        assert_eq!(cfg.visualization, VisualizationConfig::default());
+        assert!(!cfg.ui.show_icon);
+        assert_eq!(cfg.ui.applet_width, 300);
     }
 
     #[test]
@@ -302,7 +300,6 @@ mod load_and_save_tests {
     //! `~/.config/super-cosmic-applet`.
     use super::{AppletConfig, SETTINGS_FILE};
     use crate::features::Feature;
-    use crate::models::theme::VisualizationTheme;
     use std::fs;
     use std::path::PathBuf;
 
@@ -436,24 +433,6 @@ mod load_and_save_tests {
 
         fs::write(&path, "(ui: (applet_width: ").expect("write");
         assert_eq!(AppletConfig::read_new(&path), None, "half a hand edit");
-    }
-
-    #[test]
-    fn each_product_reads_and_writes_its_own_settings() {
-        let mut config = AppletConfig::default();
-        config.visualization.product_mut(Feature::Tts).theme = VisualizationTheme::Pulse;
-
-        assert_eq!(
-            config.visualization.product(Feature::Tts).theme,
-            VisualizationTheme::Pulse
-        );
-        assert_eq!(config.visualization.tts.theme, VisualizationTheme::Pulse);
-        assert_eq!(
-            config.visualization.stt,
-            AppletConfig::default().visualization.stt
-        );
-        config.visualization.product_mut(Feature::Stt).theme = VisualizationTheme::Waveform;
-        assert_eq!(config.visualization.stt.theme, VisualizationTheme::Waveform);
     }
 
     /// Beside the products' own directories, under the applet's name.
