@@ -4,7 +4,7 @@
 
 <img src="resources/icons/hicolor/scalable/apps/super-cosmic-applet.svg" width="96" height="96" alt="Super Applet">
 
-A COSMIC panel applet for [Super Voice](https://github.com/jorge-menjivar/super-voice).
+A COSMIC panel applet for [Super Voice](https://github.com/super-libre/super-voice).
 It shows what each of its two features is doing:
 
 1. While speech to text records, it draws your microphone. While it
