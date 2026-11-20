@@ -48,8 +48,8 @@ pub enum DaemonMessage {
     PingResponse,
     ScheduleRetry,
     RetryConnection,
-    /// Triggered by the popup's Retry button. Clears the cached session token
-    /// and restarts the `/events` subscription so the daemon shows a fresh
+    /// Triggered by the popup's Retry button. Restarts the `/events`
+    /// subscription, so it asks the daemon again and the daemon shows a fresh
     /// consent dialog.
     RetryAuthorization,
     /// Speech to text's `recording_state`.

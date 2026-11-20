@@ -10,13 +10,12 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use super_engine_client::http_client::WidgetEvent;
-use super_engine_client::widget_subscription::{
-    WidgetSubscriptionConfig, WidgetSubscriptionUpdate, run_widget_subscription,
-};
+use super_engine_client::widget_subscription::WidgetSubscriptionUpdate;
 
 use crate::app::{DaemonMessage, Message};
 use crate::config::{AppletConfig, SETTINGS_FILE};
-use crate::features::{APP_NAME, Feature};
+use crate::daemon::events;
+use crate::features::Feature;
 use crate::util::f64_to_f32;
 
 /// Interval at which the applet pings each daemon to check its health.
@@ -33,7 +32,7 @@ pub(super) struct EventsSubscriptionId {
 /// Subscribes to one product's `GET /events` SSE stream and forwards each
 /// event as a typed [`Message`]. The subscription is self-healing: if the
 /// stream drops, the daemon revokes the session, or the connection wedges
-/// past the keepalive deadline, [`run_widget_subscription`] reconnects (with
+/// past the keepalive deadline, [`events::subscribe`] reconnects (with
 /// backoff) and re-auths by itself. The iced subscription wrapping it only
 /// ends when the applet shuts down.
 pub(super) fn events_subscription(
@@ -43,13 +42,7 @@ pub(super) fn events_subscription(
     Box::pin(cosmic::iced::stream::channel(
         100,
         async move |mut channel| {
-            let config = WidgetSubscriptionConfig::new(
-                product.app_id(),
-                APP_NAME,
-                product.scopes(),
-                product.topics(),
-            );
-            let mut updates = Box::pin(run_widget_subscription(product.socket_path(), config));
+            let mut updates = Box::pin(events::subscribe(product));
             info!("{} subscription starting", product.display_name());
             while let Some(update) = updates.next().await {
                 let msg = Message::Daemon(product, subscription_update_to_message(update));
@@ -215,7 +208,7 @@ mod widget_subscription_mapping_tests {
     //! - `Blocked` → `Blocked`, so the popup flips to the sticky
     //!   "Authorization denied" view with a Retry button.
     //! - `NeedsReauth` → `Revoked`, a transient revoked banner while the
-    //!   engine does the `session::forget` → fresh-consent cycle.
+    //!   subscription gets a new token.
     //! - `Disconnected` → `SubscriptionError`, so the UI doesn't change state
     //!   during the engine's own backoff and reconnect.
     use super::*;

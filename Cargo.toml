@@ -12,6 +12,9 @@
     path = "src/main.rs"
 
 [dependencies]
+    # The `/events` loop, which the applet runs itself (see src/daemon/events.rs).
+    # The version super-engine-client's own loop uses.
+    async-stream = "0.3.6"
     base64 = "0.22.1"
     clap = { version = "4.5", features = ["derive"] }
     # The logger super-engine's `logging::init` sets up, built here instead so
@@ -66,7 +69,7 @@
         git = "https://github.com/jorge-menjivar/super-voice",
         rev = "c2ed7b6432ba4a72424e9eea23533274527ef0b6",
     }
-    tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
+    tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints.clippy]
     pedantic = { level = "warn", priority = -1 }
