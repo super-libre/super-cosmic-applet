@@ -52,8 +52,13 @@ impl VisualizationRenderer for PulseVisualization {
         let mut vocal_energy = 0.0;
         let mut vocal_bands = 0;
 
-        for i in vocal_start..vocal_end.min(frequency_data.bands.len()) {
-            vocal_energy += frequency_data.bands[i];
+        for band in frequency_data
+            .bands
+            .iter()
+            .take(vocal_end)
+            .skip(vocal_start)
+        {
+            vocal_energy += band;
             vocal_bands += 1;
         }
 
