@@ -102,9 +102,8 @@ impl Feature {
         let beside_us = std::env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf));
-        let path_dirs = std::env::var_os("PATH")
-            .map(|p| std::env::split_paths(&p).collect::<Vec<PathBuf>>())
-            .unwrap_or_default();
+        let path = std::env::var_os("PATH");
+        let path_dirs = path.iter().flat_map(std::env::split_paths);
         self.is_installed_in(beside_us.into_iter().chain(path_dirs))
     }
 
