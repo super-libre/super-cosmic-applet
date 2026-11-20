@@ -51,6 +51,14 @@ impl TestApplet {
         self
     }
 
+    /// Turn the popup to `page`, and let the slide there run its course.
+    pub(crate) fn show_page(&mut self, page: crate::models::state::Page) -> &mut Self {
+        self.send(Message::ShowPage(page))
+            .send(Message::PageTurnTick(
+                cosmic::iced::time::Instant::now() + super::pages::PAGE_TURN,
+            ))
+    }
+
     /// Send `message` from `product`'s daemon.
     pub(crate) fn daemon(&mut self, product: Feature, message: DaemonMessage) -> &mut Self {
         self.send(Message::Daemon(product, message))

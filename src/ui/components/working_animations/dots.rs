@@ -2,8 +2,8 @@
 use cosmic::{
     Renderer,
     iced::{
-        Color, Point,
-        widget::canvas::{Frame, path},
+        Point,
+        widget::canvas::{Fill, Frame, path},
     },
 };
 
@@ -24,16 +24,17 @@ impl WorkingAnimationRenderer for DotsAnimation {
         let WorkingDrawContext {
             bounds,
             elapsed_ms,
-            color_config,
-            is_dark,
-            cosmic_theme,
+            gradient,
             ..
         } = *ctx;
         let (w, h) = (bounds.width, bounds.height);
         if w <= 0.0 {
             return;
         }
-        let base = color_config.get_color_with_theme(is_dark, cosmic_theme);
+        let paint = |alpha: f32| Fill {
+            style: gradient.with_alpha(alpha).center_out(bounds),
+            ..Default::default()
+        };
         let cy = bounds.y + h / 2.0;
         let gap = (w * 0.085).min(28.0);
         let r = (h * 0.18).min(7.0);
@@ -49,15 +50,9 @@ impl WorkingAnimationRenderer for DotsAnimation {
 
             // Soft glow under-dot (iced has no shadow-blur).
             let glow = path::Path::circle(Point::new(x, cy), radius + 2.0);
-            frame.fill(
-                &glow,
-                Color::from_rgba(base.r, base.g, base.b, base.a * alpha * 0.3),
-            );
+            frame.fill(&glow, paint(alpha * 0.3));
             let dot = path::Path::circle(Point::new(x, cy), radius);
-            frame.fill(
-                &dot,
-                Color::from_rgba(base.r, base.g, base.b, base.a * alpha),
-            );
+            frame.fill(&dot, paint(alpha));
         }
     }
 }
@@ -66,22 +61,18 @@ impl WorkingAnimationRenderer for DotsAnimation {
 mod dots_tests {
     //! The dots, drawn: three of them, a 13.6px gap apart at this width,
     //! centred on the strip, pulsing in turn from left to right.
+    use cosmic::iced::Color;
     use std::f32::consts::FRAC_PI_2;
 
     use super::DotsAnimation;
-    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, WIDTH, colors, render, render_working, theme,
     };
     use crate::ui::components::working_animations::{WorkingAnimationRenderer, WorkingDrawContext};
 
     fn draw(elapsed_ms: f32, side: &VisualizationSide) -> Pixels {
-        render_working(
-            WorkingAnimationTheme::Dots,
-            elapsed_ms,
-            side,
-            VisualizationColor::White,
-        )
+        render_working(WorkingAnimationTheme::Dots, elapsed_ms, side, Color::WHITE)
     }
 
     /// Unlike the wave animations, the dots don't split across the two side
@@ -124,7 +115,7 @@ mod dots_tests {
     #[test]
     fn a_strip_with_no_width_draws_nothing() {
         let theme = theme(true);
-        let colors = colors(VisualizationColor::White);
+        let colors = colors(Color::WHITE);
         let pixels = render(WIDTH, HEIGHT, |frame| {
             DotsAnimation.draw(
                 frame,
@@ -134,9 +125,7 @@ mod dots_tests {
                         cosmic::iced::Size::new(0.0, 40.0),
                     ),
                     elapsed_ms: 500.0,
-                    color_config: &colors,
-                    is_dark: true,
-                    cosmic_theme: theme.cosmic(),
+                    gradient: &colors.gradient(theme.cosmic()),
                     side: &VisualizationSide::Full,
                 },
             );

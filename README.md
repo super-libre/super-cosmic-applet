@@ -12,8 +12,8 @@ It shows what each of its two features is doing:
 2. While text to speech speaks, it draws what is playing. While it prepares
    the first audio, it shows the same working animation.
 3. When both are active at once, it switches between them every few seconds.
-   Each feature has its own style, loading animation and colors, set under its
-   tab in the popup.
+   Both draw in the style and loading animation set in the popup, each in its
+   own gradient from the color pair picked there.
 4. The rest of the time it shows its icon. Click it for settings and each
    feature's status.
 

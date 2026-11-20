@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use cosmic::{
     app as cosmic_app,
-    iced::window,
+    iced::{time::Instant, window},
     surface::{action as surface_action, surface_task},
     widget::segmented_button::Entity,
 };
@@ -13,12 +13,9 @@ use crate::app::{DaemonMessage, Message};
 use crate::config::AppletConfig;
 use crate::daemon::{RetryStrategy, ping_daemon};
 use crate::features::Feature;
-use crate::models::state::{
-    CycleEvent, DaemonConnectionState, IsOpen, Phase, PhaseChange, SpeechEvent,
-};
-use crate::models::theme::{
-    IconAlignment, VisualizationColor, VisualizationTheme, WorkingAnimationTheme,
-};
+use crate::models::palette::{ColorPalette, ProductColors};
+use crate::models::state::{CycleEvent, DaemonConnectionState, Phase, PhaseChange, SpeechEvent};
+use crate::models::theme::{IconAlignment, VisualizationTheme, WorkingAnimationTheme};
 
 impl SuperApplet {
     pub(super) fn handle_message(&mut self, message: Message) -> cosmic_app::Task<Message> {
@@ -32,27 +29,32 @@ impl SuperApplet {
                 self.sync_shown();
                 cosmic_app::Task::none()
             }
-            Message::RevealerToggle(src) => self.revealer_toggle(src),
-            Message::SelectSettingsTab(product) => {
-                self.picked_settings_tab = product;
+            Message::ShowPage(page) => {
+                self.pages.open(page, Instant::now());
                 cosmic_app::Task::none()
             }
-            Message::SetVisualizationTheme(product, theme) => {
-                self.set_visualization_theme(product, theme)
+            Message::PageTurnTick(now) => {
+                self.pages.tick(now);
+                cosmic_app::Task::none()
             }
-            Message::SetWorkingAnimation(product, theme) => {
-                self.set_working_animation(product, theme)
-            }
+            Message::Surface(action) => surface_task(action),
+            Message::SetVisualizationTheme(theme) => self.set_visualization_theme(theme),
+            Message::SetWorkingAnimation(theme) => self.set_working_animation(theme),
+            Message::SetColorPalette(palette) => self.set_color_palette(palette),
             Message::OpenGitHub => Self::open_github(),
             Message::LaunchApp => Self::launch_app(),
             Message::SetAppletWidth(width) => self.set_applet_width(width),
+            Message::AppletWidthSet => {
+                self.size_preview.released(Instant::now());
+                cosmic_app::Task::none()
+            }
+            Message::SizePreviewTick(now) => {
+                self.size_preview.tick(now);
+                cosmic_app::Task::none()
+            }
             Message::SetShowIcon(show_icon) => self.set_show_icon(show_icon),
             Message::SetIconAlignmentEntity(entity) => self.set_icon_alignment(entity),
             Message::SetShowVisualizations(show) => self.set_show_visualizations(show),
-            Message::SetVisualizationColor(product, color, is_dark) => {
-                self.set_visualization_color(product, color, is_dark)
-            }
-            Message::SetColorThemeEntity(entity) => self.set_color_theme(entity),
             Message::SettingsChanged(config) => self.settings_changed(config),
             Message::WorkingAnimationTick => {
                 if let Some(elapsed_ms) = self
@@ -116,6 +118,9 @@ impl SuperApplet {
     /// behind it whenever the theme has frosted applets on.
     fn toggle_popup(&mut self) -> cosmic_app::Task<Message> {
         if let Some(p) = self.popup.take() {
+            self.size_preview.dragging = false;
+            // The next popup opens on the main page.
+            self.pages = super::pages::Pages::default();
             return surface_task(surface_action::destroy_popup(p));
         }
         let Some(main_window_id) = self.core.main_window_id() else {
@@ -141,6 +146,8 @@ impl SuperApplet {
     fn close_popup(&mut self, id: window::Id) -> cosmic_app::Task<Message> {
         if Some(id) == self.popup {
             self.popup = None;
+            self.size_preview.dragging = false;
+            self.pages = super::pages::Pages::default();
         }
         cosmic_app::Task::none()
     }
@@ -344,16 +351,18 @@ impl SuperApplet {
         }
     }
 
-    /// Give the drawing components the look of the product they draw.
+    /// Give the drawing components the look of the product they draw: the
+    /// shared style and animation, in that product's color.
     fn apply_look(&mut self) {
         let Some(product) = self.shown else {
             return;
         };
-        let look = self.config.visualization.product(product);
+        let look = &self.config.visualization;
+        let colors = ProductColors::Palette(look.palette, product);
         self.visualization.update_theme(look.theme.clone());
-        self.visualization.update_colors(look.colors.clone());
+        self.visualization.update_colors(colors);
         self.working_animation.update_theme(look.working_animation);
-        self.working_animation.update_colors(look.colors.clone());
+        self.working_animation.update_colors(colors);
     }
 
     fn frequency_bands(
@@ -397,44 +406,30 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn revealer_toggle(&mut self, is_open_src: IsOpen) -> cosmic_app::Task<Message> {
-        self.is_open = if self.is_open == is_open_src {
-            IsOpen::None
-        } else {
-            is_open_src
-        };
-        cosmic_app::Task::none()
-    }
-
-    fn set_visualization_theme(
-        &mut self,
-        product: Feature,
-        theme: VisualizationTheme,
-    ) -> cosmic_app::Task<Message> {
-        self.config.update_in(&self.settings_dir, |c| {
-            c.visualization.product_mut(product).theme = theme;
-        });
-        if self.shown == Some(product) {
+    fn set_visualization_theme(&mut self, theme: VisualizationTheme) -> cosmic_app::Task<Message> {
+        self.config
+            .update_in(&self.settings_dir, |c| c.visualization.theme = theme);
+        if self.shown.is_some() {
             self.apply_look();
             self.visualization
                 .update_audio_level(self.audio_level, self.is_speech_detected);
         }
-        self.is_open = IsOpen::None;
         cosmic_app::Task::none()
     }
 
-    fn set_working_animation(
-        &mut self,
-        product: Feature,
-        theme: WorkingAnimationTheme,
-    ) -> cosmic_app::Task<Message> {
+    fn set_working_animation(&mut self, theme: WorkingAnimationTheme) -> cosmic_app::Task<Message> {
         self.config.update_in(&self.settings_dir, |c| {
-            c.visualization.product_mut(product).working_animation = theme;
+            c.visualization.working_animation = theme;
         });
-        if self.shown == Some(product) {
-            self.apply_look();
-        }
-        self.is_open = IsOpen::None;
+        self.apply_look();
+        cosmic_app::Task::none()
+    }
+
+    /// Unlike a style, a palette leaves its swatches open, to try another.
+    fn set_color_palette(&mut self, palette: ColorPalette) -> cosmic_app::Task<Message> {
+        self.config
+            .update_in(&self.settings_dir, |c| c.visualization.palette = palette);
+        self.apply_look();
         cosmic_app::Task::none()
     }
 
@@ -480,6 +475,7 @@ impl SuperApplet {
     fn set_applet_width(&mut self, width: u32) -> cosmic_app::Task<Message> {
         self.config
             .update_in(&self.settings_dir, |c| c.ui.applet_width = width);
+        self.size_preview.dragged(Instant::now());
         self.resize_visualization();
         cosmic_app::Task::none()
     }
@@ -528,34 +524,6 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    fn set_visualization_color(
-        &mut self,
-        product: Feature,
-        color: VisualizationColor,
-        is_dark: bool,
-    ) -> cosmic_app::Task<Message> {
-        self.config.update_in(&self.settings_dir, |c| {
-            c.visualization
-                .product_mut(product)
-                .colors
-                .set_color(color, is_dark);
-        });
-        if self.shown == Some(product) {
-            self.apply_look();
-        }
-        cosmic_app::Task::none()
-    }
-
-    fn set_color_theme(&mut self, entity: Entity) -> cosmic_app::Task<Message> {
-        self.theme_selector_model.activate(entity);
-        if entity == self.theme_selector_light {
-            self.selected_theme_for_config = false;
-        } else if entity == self.theme_selector_dark {
-            self.selected_theme_for_config = true;
-        }
-        cosmic_app::Task::none()
-    }
-
     /// Take the settings another applet saved, as this one takes its own
     /// changes, without saving them back.
     fn settings_changed(&mut self, config: AppletConfig) -> cosmic_app::Task<Message> {
@@ -568,6 +536,8 @@ impl SuperApplet {
         self.icon_alignment_model.activate(entity);
         self.apply_look();
         if resized {
+            // Another applet's slider is moving: show the size here too.
+            self.size_preview.changed(Instant::now());
             self.resize_visualization();
         }
         cosmic_app::Task::none()
@@ -587,10 +557,9 @@ mod tests {
     use crate::app::{DaemonMessage, Message};
     use crate::config::AppletConfig;
     use crate::features::Feature::{self, Stt, Tts};
-    use crate::models::state::{DaemonConnectionState, IsOpen};
-    use crate::models::theme::{
-        IconAlignment, VisualizationColor, VisualizationTheme, WorkingAnimationTheme,
-    };
+    use crate::models::palette::{ColorPalette, ProductColors};
+    use crate::models::state::{DaemonConnectionState, Page};
+    use crate::models::theme::{IconAlignment, VisualizationTheme, WorkingAnimationTheme};
 
     fn connected(products: &[Feature]) -> TestApplet {
         let mut applet = TestApplet::new(products);
@@ -913,31 +882,28 @@ mod tests {
     }
 
     mod look {
-        //! Each product draws in its own style, animation and colors, which
-        //! the components take on whenever that product comes to the front.
+        //! Both products draw in one style and one animation, each in its own
+        //! color of the palette, which the components take on whenever that
+        //! product comes to the front.
         use super::*;
 
         #[test]
-        fn the_product_in_front_is_drawn_in_its_own_look() {
+        fn each_product_draws_the_shared_style_in_its_own_color() {
             let mut applet = connected(&[Stt, Tts]);
             applet
-                .send(Message::SetVisualizationTheme(
-                    Tts,
-                    VisualizationTheme::Waveform,
-                ))
-                .send(Message::SetWorkingAnimation(
-                    Tts,
-                    WorkingAnimationTheme::Dots,
-                ))
-                .send(Message::SetVisualizationColor(
-                    Tts,
-                    VisualizationColor::Red,
-                    true,
-                ));
+                .send(Message::SetVisualizationTheme(VisualizationTheme::Waveform))
+                .send(Message::SetWorkingAnimation(WorkingAnimationTheme::Dots))
+                .send(Message::SetColorPalette(ColorPalette::Sunset));
+
             make_live(&mut applet, Stt);
+            assert_eq!(applet.applet.shown, Some(Stt));
             assert_eq!(
                 applet.applet.visualization.theme(),
-                &VisualizationTheme::default()
+                &VisualizationTheme::Waveform
+            );
+            assert_eq!(
+                applet.applet.visualization.colors(),
+                &ProductColors::Palette(ColorPalette::Sunset, Stt)
             );
 
             make_live(&mut applet, Tts);
@@ -953,34 +919,24 @@ mod tests {
                 WorkingAnimationTheme::Dots
             );
             assert_eq!(
-                applet.applet.visualization.colors().dark_colors,
-                VisualizationColor::Red
+                applet.applet.visualization.colors(),
+                &ProductColors::Palette(ColorPalette::Sunset, Tts)
             );
             assert_eq!(
-                applet.applet.working_animation.colors().dark_colors,
-                VisualizationColor::Red
+                applet.applet.working_animation.colors(),
+                &ProductColors::Palette(ColorPalette::Sunset, Tts)
             );
         }
 
         #[test]
-        fn restyling_the_product_in_front_redraws_it_at_once() {
-            let mut applet = connected(&[Stt]);
-            make_live(&mut applet, Stt);
+        fn restyling_redraws_the_product_in_front_at_once() {
+            let mut applet = connected(&[Tts]);
+            make_live(&mut applet, Tts);
 
             applet
-                .send(Message::SetVisualizationTheme(
-                    Stt,
-                    VisualizationTheme::Pulse,
-                ))
-                .send(Message::SetWorkingAnimation(
-                    Stt,
-                    WorkingAnimationTheme::Comet,
-                ))
-                .send(Message::SetVisualizationColor(
-                    Stt,
-                    VisualizationColor::Cyan,
-                    false,
-                ));
+                .send(Message::SetVisualizationTheme(VisualizationTheme::Pulse))
+                .send(Message::SetWorkingAnimation(WorkingAnimationTheme::Comet))
+                .send(Message::SetColorPalette(ColorPalette::CitrusAndSea));
 
             assert_eq!(
                 applet.applet.visualization.theme(),
@@ -991,61 +947,41 @@ mod tests {
                 WorkingAnimationTheme::Comet
             );
             assert_eq!(
-                applet.applet.visualization.colors().light_colors,
-                VisualizationColor::Cyan
+                applet.applet.visualization.colors(),
+                &ProductColors::Palette(ColorPalette::CitrusAndSea, Tts)
             );
         }
 
         #[test]
-        fn restyling_the_product_behind_leaves_the_panel_alone() {
-            let mut applet = connected(&[Stt, Tts]);
-            make_live(&mut applet, Stt);
+        fn restyling_with_nothing_in_front_only_saves_it() {
+            let mut applet = connected(&[Stt]);
 
-            applet.send(Message::SetVisualizationTheme(
-                Tts,
-                VisualizationTheme::Pulse,
-            ));
+            applet.send(Message::SetVisualizationTheme(VisualizationTheme::Pulse));
 
+            assert_eq!(applet.applet.shown, None);
             assert_eq!(
-                applet.applet.visualization.theme(),
-                &VisualizationTheme::default()
-            );
-            assert_eq!(
-                applet.config().visualization.tts.theme,
+                applet.config().visualization.theme,
                 VisualizationTheme::Pulse
             );
+            // Taken on when a product comes to the front.
+            make_live(&mut applet, Stt);
+            assert_eq!(
+                applet.applet.visualization.theme(),
+                &VisualizationTheme::Pulse
+            );
         }
 
+        /// The palettes have a page of their own: picking one stays on it,
+        /// so trying another is a click away.
         #[test]
-        fn picking_a_style_or_an_animation_closes_its_list() {
+        fn picking_a_palette_stays_on_the_colors_page() {
             let mut applet = connected(&[Stt]);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationTheme));
-            applet.send(Message::SetVisualizationTheme(
-                Stt,
-                VisualizationTheme::Pulse,
-            ));
-            assert_eq!(applet.applet.is_open, IsOpen::None);
+            applet.show_page(Page::Colors);
 
-            applet.send(Message::RevealerToggle(IsOpen::WorkingAnimation));
-            applet.send(Message::SetWorkingAnimation(
-                Stt,
-                WorkingAnimationTheme::Comet,
-            ));
-            assert_eq!(applet.applet.is_open, IsOpen::None);
-        }
+            applet.send(Message::SetColorPalette(ColorPalette::EmberAndAsh));
 
-        #[test]
-        fn picking_a_color_keeps_the_swatches_open() {
-            let mut applet = connected(&[Stt]);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
-
-            applet.send(Message::SetVisualizationColor(
-                Stt,
-                VisualizationColor::Red,
-                true,
-            ));
-
-            assert_eq!(applet.applet.is_open, IsOpen::VisualizationColors);
+            assert_eq!(applet.applet.pages.shown(), Page::Colors);
+            assert!(!applet.applet.pages.turning());
         }
     }
 
@@ -1058,19 +994,9 @@ mod tests {
             let center = applet.applet.icon_alignment_center;
 
             applet
-                .send(Message::SetVisualizationTheme(
-                    Tts,
-                    VisualizationTheme::Pulse,
-                ))
-                .send(Message::SetWorkingAnimation(
-                    Stt,
-                    WorkingAnimationTheme::Comet,
-                ))
-                .send(Message::SetVisualizationColor(
-                    Stt,
-                    VisualizationColor::Red,
-                    false,
-                ))
+                .send(Message::SetVisualizationTheme(VisualizationTheme::Pulse))
+                .send(Message::SetWorkingAnimation(WorkingAnimationTheme::Comet))
+                .send(Message::SetColorPalette(ColorPalette::Aurora))
                 .send(Message::SetAppletWidth(240))
                 .send(Message::SetShowIcon(false))
                 .send(Message::SetIconAlignmentEntity(center))
@@ -1078,15 +1004,12 @@ mod tests {
 
             let saved = applet.saved().expect("the changes were saved");
             assert_eq!(&saved, applet.config());
-            assert_eq!(saved.visualization.tts.theme, VisualizationTheme::Pulse);
+            assert_eq!(saved.visualization.theme, VisualizationTheme::Pulse);
             assert_eq!(
-                saved.visualization.stt.working_animation,
+                saved.visualization.working_animation,
                 WorkingAnimationTheme::Comet
             );
-            assert_eq!(
-                saved.visualization.stt.colors.light_colors,
-                VisualizationColor::Red
-            );
+            assert_eq!(saved.visualization.palette, ColorPalette::Aurora);
             assert_eq!(saved.ui.applet_width, 240);
             assert!(!saved.ui.show_icon);
             assert_eq!(saved.ui.icon_alignment, IconAlignment::Center);
@@ -1108,41 +1031,32 @@ mod tests {
         }
 
         #[test]
-        fn the_theme_selector_picks_which_colors_the_swatches_set() {
-            let mut applet = connected(&[Stt]);
-            let (light, dark) = (
-                applet.applet.theme_selector_light,
-                applet.applet.theme_selector_dark,
-            );
-
-            applet.send(Message::SetColorThemeEntity(light));
-            assert!(!applet.applet.selected_theme_for_config);
-            assert_eq!(applet.applet.theme_selector_model.active(), light);
-
-            applet.send(Message::SetColorThemeEntity(dark));
-            assert!(applet.applet.selected_theme_for_config);
-        }
-
-        #[test]
-        fn one_list_opens_at_a_time_and_a_second_press_closes_it() {
+        fn the_colors_page_slides_in_and_back_out() {
             let mut applet = connected(&[Stt]);
 
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationTheme));
-            assert_eq!(applet.applet.is_open, IsOpen::VisualizationTheme);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
-            assert_eq!(applet.applet.is_open, IsOpen::VisualizationColors);
-            applet.send(Message::RevealerToggle(IsOpen::VisualizationColors));
-            assert_eq!(applet.applet.is_open, IsOpen::None);
+            applet.send(Message::ShowPage(Page::Colors));
+            assert_eq!(applet.applet.pages.slide(), Some((Page::Main, 0.0)));
+            applet.show_page(Page::Main);
+            assert_eq!(applet.applet.pages.shown(), Page::Main);
+            assert!(!applet.applet.pages.turning());
         }
 
+        /// However the popup closes, on whatever page, it opens again on
+        /// the main one.
         #[test]
-        fn the_picked_tab_is_remembered() {
-            let mut applet = connected(&[Stt, Tts]);
-            assert_eq!(applet.applet.settings_tab(), Some(Stt));
+        fn the_popup_opens_again_on_the_main_page() {
+            let id = window::Id::unique();
+            for close in [Message::TogglePopup, Message::CloseRequested(id)] {
+                let mut applet = connected(&[Stt]);
+                applet.applet.popup = Some(id);
+                applet.send(Message::ShowPage(Page::Colors));
 
-            applet.send(Message::SelectSettingsTab(Tts));
+                applet.send(close.clone());
 
-            assert_eq!(applet.applet.settings_tab(), Some(Tts));
+                assert_eq!(applet.applet.popup, None, "{close:?}");
+                assert_eq!(applet.applet.pages.shown(), Page::Main, "{close:?}");
+                assert!(!applet.applet.pages.turning(), "{close:?}");
+            }
         }
 
         #[test]
@@ -1165,8 +1079,8 @@ mod tests {
 
         fn theirs() -> AppletConfig {
             let mut config = AppletConfig::default();
-            config.visualization.stt.theme = VisualizationTheme::Waveform;
-            config.visualization.stt.colors.dark_colors = VisualizationColor::Green;
+            config.visualization.theme = VisualizationTheme::Waveform;
+            config.visualization.palette = ColorPalette::Glacier;
             config.ui.icon_alignment = IconAlignment::Start;
             config.ui.applet_width = 250;
             config
@@ -1207,8 +1121,8 @@ mod tests {
                 &VisualizationTheme::Waveform
             );
             assert_eq!(
-                applet.applet.working_animation.colors().dark_colors,
-                VisualizationColor::Green
+                applet.applet.working_animation.colors(),
+                &ProductColors::Palette(ColorPalette::Glacier, Stt)
             );
             // The new width redrew the bars from the level.
             assert_ne!(applet.applet.visualization.bands(), &[0.5; 32]);

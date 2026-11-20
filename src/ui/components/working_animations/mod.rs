@@ -9,7 +9,8 @@ pub use droplet::DropletAnimation;
 
 use cosmic::{Renderer, iced::core::Rectangle, iced::widget::canvas::Frame};
 
-use crate::models::theme::{VisualizationColorConfig, VisualizationSide, WorkingAnimationTheme};
+use crate::models::palette::Gradient;
+use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
 
 /// Per-frame inputs for a working animation. Time-driven (no audio).
 #[derive(Clone, Copy)]
@@ -17,9 +18,10 @@ pub struct WorkingDrawContext<'a> {
     pub bounds: Rectangle,
     /// Wall-clock milliseconds since the Processing phase began.
     pub elapsed_ms: f32,
-    pub color_config: &'a VisualizationColorConfig,
-    pub is_dark: bool,
-    pub cosmic_theme: &'a cosmic::cosmic_theme::Theme,
+    /// The gradient to draw in, resolved for the theme being drawn on. The
+    /// animations move about the middle, so it runs out from there, deep at
+    /// the middle and light at the edges.
+    pub gradient: &'a Gradient,
     /// Which portion of the (logical full-width) animation this applet renders.
     pub side: &'a VisualizationSide,
 }
@@ -84,10 +86,12 @@ mod render_tests {
     //! What every working animation promises, drawn for real: it paints the
     //! color the user picked, stays inside the strip, moves with time, and
     //! draws the same frame for the same moment.
-    use crate::models::theme::{VisualizationColor, VisualizationSide, WorkingAnimationTheme};
+    use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
+    use crate::ui::components::visualizations::test_support::RED;
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, MARGIN, WIDTH, render_working, rgb, same_color,
     };
+    use cosmic::iced::Color;
 
     const ALL: [WorkingAnimationTheme; 3] = [
         WorkingAnimationTheme::Droplet,
@@ -104,15 +108,10 @@ mod render_tests {
     #[test]
     fn every_animation_paints_the_color_picked() {
         for animation in ALL {
-            let pixels = render_working(
-                animation,
-                400.0,
-                &VisualizationSide::Full,
-                VisualizationColor::Red,
-            );
+            let pixels = render_working(animation, 400.0, &VisualizationSide::Full, RED);
             let painted = pixels.paint_color();
             assert!(
-                same_color(painted, rgb(VisualizationColor::Red.to_color())),
+                same_color(painted, rgb(RED)),
                 "{animation:?} painted {painted:?}"
             );
         }
@@ -127,8 +126,7 @@ mod render_tests {
         for animation in ALL {
             for side in &SIDES {
                 for elapsed_ms in [0.0, 120.0, 400.0, 900.0, 1500.0, 1899.0, 5000.0] {
-                    let pixels =
-                        render_working(animation, elapsed_ms, side, VisualizationColor::White);
+                    let pixels = render_working(animation, elapsed_ms, side, Color::WHITE);
                     assert_eq!(
                         pixels.painted_outside(WIDTH, HEIGHT, MARGIN as i32, 1),
                         0,
@@ -147,7 +145,7 @@ mod render_tests {
                     animation,
                     elapsed_ms,
                     &VisualizationSide::Full,
-                    VisualizationColor::White,
+                    Color::WHITE,
                 )
             };
             assert_eq!(

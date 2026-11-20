@@ -14,13 +14,14 @@ use cosmic::{
     iced::{
         Padding, Point, Size, border,
         core::Rectangle,
-        widget::canvas::{Fill, Frame, path, stroke},
+        widget::canvas::{Fill, Frame, path},
     },
 };
 
 use crate::config::FREQUENCY_NORMALIZATION_MAX;
-use crate::models::theme::{VisualizationColorConfig, VisualizationSide};
-use crate::util::usize_to_f32;
+use crate::models::palette::Gradient;
+use crate::models::theme::VisualizationSide;
+use crate::util::{f32_to_usize, usize_to_f32};
 use super_engine_protocol::FrequencyData;
 
 /// Maximum number of frequency bands any bar/waveform visualization renders.
@@ -52,6 +53,31 @@ pub fn visible_band_range(side: &VisualizationSide, total_bands: usize) -> (usiz
     }
 }
 
+/// How far apart bars sit along the applet, in pixels: 48 bars across a
+/// 300px applet, and fewer on a shorter one.
+pub const BAR_PITCH: f32 = 300.0 / 48.0;
+
+/// How many bars fit along `length` pixels at [`BAR_PITCH`]: at least one.
+pub fn bar_count(length: f32) -> usize {
+    f32_to_usize((length / BAR_PITCH).round()).max(1)
+}
+
+/// The level of bar `bar` of `bars` spread evenly over `bands`: the two bands
+/// its middle falls between, blended by how close it sits to each. With more
+/// bars than bands, neighbors step smoothly between band levels; with fewer,
+/// each bar reads the spectrum where it stands.
+pub fn bar_level(bands: &[f32], bar: usize, bars: usize) -> f32 {
+    let Some(last) = bands.len().checked_sub(1) else {
+        return 0.0;
+    };
+    let at = ((usize_to_f32(bar) + 0.5) * usize_to_f32(bands.len()) / usize_to_f32(bars) - 0.5)
+        .clamp(0.0, usize_to_f32(last));
+    let below = f32_to_usize(at);
+    let above = (below + 1).min(last);
+    let t = at - usize_to_f32(below);
+    bands[below] * (1.0 - t) + bands[above] * t
+}
+
 /// Render the vertical-bar family of visualizations (bottom equalizer and
 /// centered equalizer). The two differ only in their per-style
 /// [`VisualizationConfig`] and vertical [`BarAnchor`]; all band selection, bar
@@ -66,21 +92,22 @@ pub fn render_bars(
         bounds,
         frequency_data,
         side,
-        color_config,
-        is_dark,
-        cosmic_theme,
+        gradient,
     } = *ctx;
     let effective_bounds = config.effective_bounds(bounds);
-    let (bars_to_show, bar_start_index) = visible_band_range(side, frequency_data.bands.len());
+    let (band_count, band_start) = visible_band_range(side, frequency_data.bands.len());
 
     // Nothing to draw (e.g. malformed/empty frequency data decoded to zero
-    // bands). Bail before dividing `bar_width`/`spacing` by zero and before
-    // `bars_to_show - 1` underflows the usize below (Tier 1 #21, same class
-    // as #268).
-    if bars_to_show == 0 {
+    // bands). Bail before sampling an empty slice (Tier 1 #21, same class as
+    // #268).
+    if band_count == 0 {
         return;
     }
+    let bands = &frequency_data.bands[band_start..band_start + band_count];
 
+    // As many bars as the applet's length holds, whatever the band count, so
+    // a longer applet draws more bars rather than wider ones.
+    let bars_to_show = bar_count(effective_bounds.width);
     let bars_f32 = usize_to_f32(bars_to_show);
     let bar_width = effective_bounds.width / bars_f32 * 0.8;
     let spacing = effective_bounds.width / bars_f32 * 0.2;
@@ -92,20 +119,19 @@ pub fn render_bars(
 
     let normalization_factor = 1.0 / FREQUENCY_NORMALIZATION_MAX;
 
-    // Loop-invariant: neither the fill color nor the height ceiling depends on
-    // the per-bar amplitude, so resolve them once instead of per bar.
-    let base = color_config.get_color_with_theme(is_dark, cosmic_theme);
+    // Loop-invariant: neither the fill nor the height ceiling depends on the
+    // per-bar amplitude, so resolve them once instead of per bar. One gradient
+    // spans the whole strip the way the bars grow, deep where they start, so
+    // a bar takes the colors of the heights it reaches.
+    let fill = match anchor {
+        BarAnchor::Bottom => gradient.bottom_to_top(bounds),
+        BarAnchor::Center => gradient.center_out(bounds),
+    };
     let max_height = config.max_element_height(effective_bounds.height);
 
     for display_bar in 0..bars_to_show {
         let x = start_x + (usize_to_f32(display_bar) * (bar_width + spacing));
-
-        let band_index = bar_start_index + display_bar;
-        let average_amplitude = if band_index < frequency_data.bands.len() {
-            frequency_data.bands[band_index]
-        } else {
-            0.0
-        };
+        let average_amplitude = bar_level(bands, display_bar, bars_to_show);
 
         let height_factor = average_amplitude * normalization_factor;
         let capped_height_factor = height_factor.min(1.0);
@@ -129,7 +155,7 @@ pub fn render_bars(
         frame.fill(
             &path,
             Fill {
-                style: stroke::Style::Solid(base),
+                style: fill,
                 ..Default::default()
             },
         );
@@ -195,12 +221,8 @@ pub struct DrawContext<'a> {
     pub frequency_data: &'a FrequencyData,
     /// Which portion of the spectrum this applet instance renders.
     pub side: &'a VisualizationSide,
-    /// User-configured colors.
-    pub color_config: &'a VisualizationColorConfig,
-    /// Whether the active COSMIC theme is dark.
-    pub is_dark: bool,
-    /// Active COSMIC theme, for resolving system colors.
-    pub cosmic_theme: &'a cosmic::cosmic_theme::Theme,
+    /// The gradient to draw in, resolved for the theme being drawn on.
+    pub gradient: &'a Gradient,
 }
 
 /// Common trait for all visualization renderers.
@@ -227,9 +249,8 @@ pub(crate) mod test_support {
     };
 
     use super::{DrawContext, VisualizationRenderer};
-    use crate::models::theme::{
-        VisualizationColor, VisualizationColorConfig, VisualizationSide, WorkingAnimationTheme,
-    };
+    use crate::models::palette::{Gradient, ProductColors};
+    use crate::models::theme::{VisualizationSide, WorkingAnimationTheme};
     use crate::ui::components::working_animations::{self, WorkingDrawContext};
     use crate::util::{u32_to_f32, usize_to_f32};
     use super_engine_protocol::FrequencyData;
@@ -366,6 +387,15 @@ pub(crate) mod test_support {
             sum.map(|channel| channel / weight)
         }
 
+        /// The color painted at `(x, y)`, as [`Self::paint_color`] gives it.
+        pub(crate) fn color_at(&self, x: i32, y: i32) -> [f32; 3] {
+            let i = self.index(x, y).expect("a pixel in the frame");
+            let pixel = &self.rgba[i..i + 4];
+            assert!(pixel[3] >= PAINTED, "nothing painted at ({x}, {y})");
+            let alpha = f32::from(pixel[3]) / 255.0;
+            [0, 1, 2].map(|c| f32::from(pixel[c]) / 255.0 / alpha)
+        }
+
         /// The frame flipped left to right, to compare a side with its mirror.
         pub(crate) fn mirrored(&self) -> Self {
             let mut rgba = Vec::with_capacity(self.rgba.len());
@@ -458,13 +488,15 @@ pub(crate) mod test_support {
         }
     }
 
-    /// The same color in both themes.
-    pub(crate) fn colors(color: VisualizationColor) -> VisualizationColorConfig {
-        VisualizationColorConfig {
-            light_colors: color.clone(),
-            dark_colors: color,
-        }
+    /// Colors a test can check for: `color` all the way up the gradient, in
+    /// either theme.
+    pub(crate) fn colors(color: Color) -> ProductColors {
+        ProductColors::Fixed(Gradient::solid(color))
     }
+
+    /// Distinct colors for tests to tell apart.
+    pub(crate) const RED: Color = Color::from_rgb(1.0, 0.3, 0.45);
+    pub(crate) const GREEN: Color = Color::from_rgb(0.3, 0.8, 0.5);
 
     /// `[r, g, b]` of `color`, as [`Pixels::paint_color`] gives it.
     pub(crate) fn rgb(color: Color) -> [f32; 3] {
@@ -497,10 +529,18 @@ pub(crate) mod test_support {
         visualization: &dyn VisualizationRenderer,
         data: &FrequencyData,
         side: &VisualizationSide,
-        color: VisualizationColor,
+        color: Color,
     ) -> Pixels {
-        let theme = theme(true);
-        let colors = colors(color);
+        render_gradient(visualization, data, side, &Gradient::solid(color))
+    }
+
+    /// One visualization's frame for `data` on `side`, in `gradient`.
+    pub(crate) fn render_gradient(
+        visualization: &dyn VisualizationRenderer,
+        data: &FrequencyData,
+        side: &VisualizationSide,
+        gradient: &Gradient,
+    ) -> Pixels {
         render_strip(|frame, strip| {
             visualization.draw(
                 frame,
@@ -508,9 +548,7 @@ pub(crate) mod test_support {
                     bounds: strip,
                     frequency_data: data,
                     side,
-                    color_config: &colors,
-                    is_dark: true,
-                    cosmic_theme: theme.cosmic(),
+                    gradient,
                 },
             );
         })
@@ -522,10 +560,9 @@ pub(crate) mod test_support {
         animation: WorkingAnimationTheme,
         elapsed_ms: f32,
         side: &VisualizationSide,
-        color: VisualizationColor,
+        color: Color,
     ) -> Pixels {
-        let theme = theme(true);
-        let colors = colors(color);
+        let gradient = Gradient::solid(color);
         render_strip(|frame, strip| {
             working_animations::draw(
                 animation,
@@ -533,9 +570,7 @@ pub(crate) mod test_support {
                 &WorkingDrawContext {
                     bounds: strip,
                     elapsed_ms,
-                    color_config: &colors,
-                    is_dark: true,
-                    cosmic_theme: theme.cosmic(),
+                    gradient: &gradient,
                     side,
                 },
             );
@@ -568,6 +603,44 @@ pub(crate) mod test_support {
             Some((0, 0, WIDTH as i32 - 1, HEIGHT as i32 - 1))
         );
         assert_eq!(pixels.painted_outside(WIDTH, HEIGHT, 0, 0), 0);
+    }
+}
+
+#[cfg(test)]
+mod bar_tests {
+    //! How many bars an applet draws, and what each reads from the bands.
+    use super::{bar_count, bar_level};
+
+    #[test]
+    fn a_300px_applet_draws_48_bars_and_a_shorter_one_fewer() {
+        assert_eq!(bar_count(300.0), 48);
+        assert_eq!(bar_count(150.0), 24);
+        assert_eq!(bar_count(120.0), 19);
+        assert_eq!(bar_count(60.0), 10);
+        assert_eq!(bar_count(0.0), 1, "always at least one");
+    }
+
+    #[test]
+    fn as_many_bars_as_bands_read_each_band() {
+        let bands = [0.0, 1.0, 2.0, 3.0];
+        for (i, band) in bands.iter().enumerate() {
+            assert!((bar_level(&bands, i, bands.len()) - band).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn more_bars_than_bands_step_smoothly_between_them() {
+        let bands = [0.0, 2.0];
+        let levels: Vec<f32> = (0..4).map(|i| bar_level(&bands, i, 4)).collect();
+        assert_eq!(levels.first(), Some(&0.0));
+        assert_eq!(levels.last(), Some(&2.0));
+        assert!(levels.windows(2).all(|w| w[0] <= w[1]), "{levels:?}");
+        assert!(levels[1] > 0.0 && levels[2] < 2.0, "{levels:?}");
+    }
+
+    #[test]
+    fn no_bands_read_as_silence() {
+        assert_eq!(bar_level(&[], 0, 10), 0.0);
     }
 }
 
@@ -703,13 +776,16 @@ mod render_tests {
     //! the user picked, and it stays inside the strip, however loud the audio,
     //! on whichever side.
     use super::test_support::{
-        HEIGHT, WIDTH, bands, flat_bands, render_visualization, rgb, same_color, theme,
+        HEIGHT, WIDTH, bands, flat_bands, render_visualization, rgb, same_color,
     };
     use super::{
         CenteredBarsVisualization, EqualizerVisualization, PulseVisualization,
         VisualizationRenderer, WaveformVisualization,
     };
-    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::models::palette::{Gradient, STOPS};
+    use crate::models::theme::VisualizationSide;
+    use crate::ui::components::visualizations::test_support::{GREEN, RED, render_gradient};
+    use cosmic::iced::Color;
 
     fn all() -> [(&'static str, Box<dyn VisualizationRenderer>); 4] {
         [
@@ -731,38 +807,50 @@ mod render_tests {
 
     #[test]
     fn every_visualization_paints_the_color_picked() {
-        for color in [VisualizationColor::Red, VisualizationColor::PastelGreen] {
+        for color in [RED, GREEN] {
             for (name, visualization) in all() {
                 let pixels = render_visualization(
                     visualization.as_ref(),
                     &flat_bands(32, 1.5),
                     &VisualizationSide::Full,
-                    color.clone(),
+                    color,
                 );
                 let painted = pixels.paint_color();
                 assert!(
-                    same_color(painted, rgb(color.to_color())),
+                    same_color(painted, rgb(color)),
                     "{name} painted {painted:?} for {color:?}"
                 );
             }
         }
     }
 
+    /// The gradient follows how a style grows: what grows from the bottom is
+    /// deep at the bottom and light at the top; what grows out of the middle
+    /// is deep at the middle and light toward both edges.
     #[test]
-    fn system_accent_paints_the_themes_accent() {
-        let accent = theme(true).cosmic().accent.base.color;
-        for (name, visualization) in all() {
-            let pixels = render_visualization(
+    fn the_gradient_follows_how_each_style_grows() {
+        let mut gradient = Gradient::solid(RED);
+        for stop in &mut gradient.stops[STOPS / 2..] {
+            *stop = GREEN;
+        }
+        for (name, visualization) in all().into_iter().take(3) {
+            let pixels = render_gradient(
                 visualization.as_ref(),
-                &flat_bands(32, 1.5),
+                &flat_bands(32, 3.0),
                 &VisualizationSide::Full,
-                VisualizationColor::SystemAccent,
+                &gradient,
             );
-            let painted = pixels.paint_color();
-            assert!(
-                same_color(painted, [accent.red, accent.green, accent.blue]),
-                "{name} painted {painted:?}, not the accent"
-            );
+            let x = pixels.heaviest_column(0..WIDTH as i32);
+            let (top, bottom) = pixels.painted_rows(x).expect("a full bar");
+            let [low, middle, high] =
+                [bottom - 1, (top + bottom) / 2, top + 1].map(|y| pixels.color_at(x, y));
+            assert!(same_color(high, rgb(GREEN)), "{name} top {high:?}");
+            if name == "equalizer" {
+                assert!(same_color(low, rgb(RED)), "{name} bottom {low:?}");
+            } else {
+                assert!(same_color(middle, rgb(RED)), "{name} middle {middle:?}");
+                assert!(same_color(low, rgb(GREEN)), "{name} bottom {low:?}");
+            }
         }
     }
 
@@ -787,12 +875,8 @@ mod render_tests {
         for (name, visualization) in all() {
             for side in &SIDES {
                 for data in &cases {
-                    let pixels = render_visualization(
-                        visualization.as_ref(),
-                        data,
-                        side,
-                        VisualizationColor::White,
-                    );
+                    let pixels =
+                        render_visualization(visualization.as_ref(), data, side, Color::WHITE);
                     assert_eq!(
                         pixels.painted_outside(WIDTH, HEIGHT, 1, 1),
                         0,
@@ -813,7 +897,7 @@ mod render_tests {
                     visualization.as_ref(),
                     &flat_bands(32, level),
                     &VisualizationSide::Full,
-                    VisualizationColor::White,
+                    Color::WHITE,
                 )
                 .ink()
             };

@@ -304,12 +304,14 @@ pub enum DaemonConnectionState {
     Blocked(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum IsOpen {
-    None,
-    VisualizationTheme,
-    WorkingAnimation,
-    VisualizationColors,
+/// The popup's pages, from the one it opens on to the ones further in.
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Page {
+    /// Every product's status and every setting, the colors' aside.
+    #[default]
+    Main,
+    /// The palettes, a page of their own.
+    Colors,
 }
 
 #[cfg(test)]

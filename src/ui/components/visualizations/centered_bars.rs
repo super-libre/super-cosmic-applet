@@ -36,20 +36,21 @@ impl VisualizationRenderer for CenteredBarsVisualization {
 #[cfg(test)]
 mod centered_bars_tests {
     //! The centered bars, drawn. The strip is 160×40 and the bars keep a 1px
-    //! margin top and bottom, so they have rows 1 to 38: 32 bars, each 4px
-    //! wide with 1px between, starting half a pixel in.
+    //! margin top and bottom, so they have rows 1 to 38: 26 bars at the
+    //! 6.25px pitch, each about 5px wide, across all 32 bands.
     use super::CenteredBarsVisualization;
-    use crate::models::theme::{VisualizationColor, VisualizationSide};
+    use crate::models::theme::VisualizationSide;
     use crate::ui::components::visualizations::test_support::{
         HEIGHT, Pixels, bands, flat_bands, render_visualization,
     };
+    use cosmic::iced::Color;
 
     fn draw(data: &super_engine_protocol::FrequencyData) -> Pixels {
         render_visualization(
             &CenteredBarsVisualization::default(),
             data,
             &VisualizationSide::Full,
-            VisualizationColor::White,
+            Color::WHITE,
         )
     }
 
@@ -85,19 +86,25 @@ mod centered_bars_tests {
         }
     }
 
-    /// A band lights its own bar and no other.
+    /// A loud band lights the one bar over it, where the band sits along
+    /// the spectrum, and no other.
     #[test]
-    fn each_band_drives_its_own_bar() {
+    fn a_band_drives_the_bar_over_it() {
         let mut levels = vec![0.0; 32];
         levels[10] = 3.0;
         let pixels = draw(&bands(levels));
 
-        // Above the silent bars' dots, only bar 10 is painted.
+        // Above the silent bars' dots, one bar is painted: band 10 of 32
+        // sits at 10.5 / 32 of the strip's 160px.
         let tall: Vec<i32> = (0..160)
             .filter(|&x| (1..15).any(|y| pixels.is_painted(x, y)))
             .collect();
-        assert_eq!(tall.first(), Some(&50), "tall columns {tall:?}");
-        assert_eq!(tall.last(), Some(&54), "tall columns {tall:?}");
+        let (first, last) = (tall[0], tall[tall.len() - 1]);
+        assert!(last - first <= 5, "more than one bar: {tall:?}");
+        assert!(
+            ((first + last) / 2 - 52).abs() <= 3,
+            "in the wrong place: {tall:?}"
+        );
     }
 
     /// Malformed frequency data decodes to no bands: nothing to draw, and no
