@@ -6,7 +6,6 @@ use cosmic::{
     widget::segmented_button::Entity,
 };
 use log::{debug, info, warn};
-use super_engine_client::session;
 
 use super::SuperApplet;
 use super::init::ping_or_retry;
@@ -158,8 +157,8 @@ impl SuperApplet {
         link.retry_strategy.reset();
         // The /events subscription reconnects by itself, so this deliberately
         // does NOT bump `restart_counter`. Restarting it on every successful
-        // ping would cancel the engine's task mid-flight and send every ping
-        // cycle back through `session::obtain`: another keyring touch.
+        // ping would cancel the subscription's task mid-flight and send every
+        // ping cycle back for a token.
         cosmic_app::Task::none()
     }
 
@@ -228,14 +227,11 @@ impl SuperApplet {
             "Asking {} for authorization again after a denial",
             product.display_name()
         );
-        // Drop any cached token (in memory and in the keyring) so the next
-        // subscription cycle reaches the daemon's /auth/request and a fresh
-        // consent dialog.
-        if let Err(e) = session::forget(product.app_id()) {
-            warn!("Failed to forget the session before retrying: {e}");
-        }
+        // No token to drop: a denial leaves this process without one. The
+        // restarted subscription takes a token another applet process got
+        // meanwhile, or asks the daemon, which shows a fresh consent dialog.
         let link = self.link_mut(product);
-        // Restart the subscription so the ended engine task starts afresh.
+        // Restart the subscription so the ended task starts afresh.
         link.restart_counter = link.restart_counter.wrapping_add(1);
         link.daemon_state = DaemonConnectionState::Connecting;
         link.retry_strategy = RetryStrategy::for_initial_connection();
@@ -379,11 +375,12 @@ impl SuperApplet {
 
     fn revoked(&mut self, product: Feature, reason: &str) -> cosmic_app::Task<Message> {
         warn!(
-            "{} revoked the session (reason={reason}); the next retry asks for consent again",
+            "{} revoked the session (reason={reason}); getting a new token",
             product.display_name()
         );
-        // Treat like a dropped connection, so the reconnect path does a fresh
-        // /auth/request, consent dialog and subscription.
+        // Treat like a dropped connection, so the reconnect path gets a new
+        // token (another applet process's, or from a fresh /auth/request) and
+        // subscribes again.
         self.link_mut(product).daemon_state =
             DaemonConnectionState::Error(format!("revoked: {reason}"));
         self.sync_shown();
