@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Two pages of the popup side by side, sliding one out as the other comes
-//! in. The popup is as tall as the page leaving at the start, and as the one
-//! entering by the end, and grows or shrinks between the two as they slide.
+//! in.
+//!
+//! The slide is as tall as the taller page throughout. COSMIC draws a popup
+//! out of place for a frame whenever its size changes, so a popup that
+//! followed the pages' heights frame by frame jitters as it slides. Held at
+//! the taller one's height, it changes size once: as the slide starts, into a
+//! taller page, or as it ends, into a shorter one.
 use cosmic::{
     Element, Renderer, Theme,
     iced::core::{
@@ -76,8 +81,7 @@ impl<Message> Widget<Message, Theme, Renderer> for PageSlide<'_, Message> {
             Direction::Forward => (-shift, width - shift),
             Direction::Back => (shift, shift - width),
         };
-        let (from, to) = (leaving.size().height, entering.size().height);
-        let height = from + (to - from) * self.progress;
+        let height = leaving.size().height.max(entering.size().height);
 
         layout::Node::with_children(
             limits.resolve(Length::Fill, Length::Shrink, Size::new(width, height)),
@@ -185,10 +189,15 @@ mod tests {
     }
 
     fn slide(progress: f32, direction: Direction) -> Simulator<'static> {
+        slide_between([100.0, 200.0], progress, direction)
+    }
+
+    /// A slide from a red page to a green one, of the `heights` given.
+    fn slide_between(heights: [f32; 2], progress: f32, direction: Direction) -> Simulator<'static> {
         Simulator::with_size(
             PageSlide::new(
-                page(Color::from_rgb(1.0, 0.0, 0.0), 100.0),
-                page(Color::from_rgb(0.0, 1.0, 0.0), 200.0),
+                page(Color::from_rgb(1.0, 0.0, 0.0), heights[0]),
+                page(Color::from_rgb(0.0, 1.0, 0.0), heights[1]),
                 progress,
                 direction,
             ),
@@ -230,17 +239,29 @@ mod tests {
         }
     }
 
-    /// Halfway, it is halfway between the two pages' heights, and nothing
-    /// of the taller page shows below that.
+    /// From start to end, into a taller page or a shorter one, it is as tall
+    /// as the taller page: the popup's size changes once, not frame by
+    /// frame.
     #[test]
-    fn its_height_moves_from_one_page_to_the_other() {
-        let mut ui = slide(0.5, Direction::Forward);
-        let bounds = ui.containers()[0];
-        assert!((bounds.height - 150.0).abs() < 0.5, "{bounds:?}");
+    fn it_is_as_tall_as_the_taller_page_throughout() {
+        for heights in [[100.0, 200.0], [200.0, 100.0]] {
+            for progress in [0.0, 0.25, 0.5, 1.0] {
+                let mut ui = slide_between(heights, progress, Direction::Forward);
+                let height = ui.containers()[0].height;
+                assert!(
+                    (height - 200.0).abs() < 0.5,
+                    "{heights:?} at {progress}: {height}"
+                );
+            }
+        }
+    }
 
-        let pixels = ui.screenshot();
-        assert_eq!(color_at(&pixels, WIDTH * 0.75, 140.0), Some(GREEN));
-        assert_eq!(color_at(&pixels, WIDTH * 0.75, 160.0), None);
+    /// Below the shorter page, nothing: the taller one beside it shows on.
+    #[test]
+    fn the_shorter_page_leaves_room_below_it() {
+        let pixels = slide(0.5, Direction::Forward).screenshot();
+        assert_eq!(color_at(&pixels, WIDTH * 0.25, 150.0), None);
+        assert_eq!(color_at(&pixels, WIDTH * 0.75, 150.0), Some(GREEN));
     }
 
     #[test]
