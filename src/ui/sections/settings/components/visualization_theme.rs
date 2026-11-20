@@ -184,8 +184,9 @@ pub fn create_palette_picker<'a>(selected: ColorPalette) -> Element<'a, Message>
 
 #[cfg(test)]
 mod selector_tests {
-    //! The selectors, on a real applet: each opens its list, and what it
-    //! picks is saved for both products.
+    //! The selectors, on a real applet: each dropdown opens its menu, the
+    //! Colors row opens the Colors page, and what they pick is saved for
+    //! both products.
     use crate::app::Message;
     use crate::app::testing::TestApplet;
     use crate::features::Feature::{Stt, Tts};

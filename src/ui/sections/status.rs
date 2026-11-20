@@ -7,9 +7,9 @@ use cosmic::{
 };
 
 /// A status line for each installed product that isn't connected, or a note
-/// that neither is installed. A connected product needs no line: its settings
-/// tab and its launch button already show it is there. `None` once every
-/// installed product is connected.
+/// that neither is installed. A connected product needs no line: the
+/// settings, which show once a product connects, already say it is there.
+/// `None` once every installed product is connected.
 pub fn create_status_section(links: &[ProductLink]) -> Option<Element<'static, Message>> {
     if !links.iter().any(|l| l.installed) {
         return Some(

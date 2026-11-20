@@ -425,7 +425,6 @@ impl SuperApplet {
         cosmic_app::Task::none()
     }
 
-    /// Unlike a style, a palette leaves its swatches open, to try another.
     fn set_color_palette(&mut self, palette: ColorPalette) -> cosmic_app::Task<Message> {
         self.config
             .update_in(&self.settings_dir, |c| c.visualization.palette = palette);
